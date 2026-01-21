@@ -56,7 +56,7 @@
 
           # Explicitly set package name and version
           pname = "lnix";
-          version = "2.0.0";
+          version = "0.1.0";
 
           # Specify target for cross-compilation
           CARGO_BUILD_TARGET = rustTarget;
@@ -115,7 +115,7 @@
 
           # Explicitly set package name and version
           pname = "lnix";
-          version = "2.0.0";
+          version = "0.1.0";
 
           # MacOS-specific dependencies
           buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
