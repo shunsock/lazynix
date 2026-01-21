@@ -1,0 +1,135 @@
+name: Cargo Commands CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/cli/src/**/*.rs
+      - src/linter/src/**/*.rs
+      - src/flake-generator/src/**/*.rs
+      - src/nix-dispatcher/src/**/*.rs
+      - src/cli/Cargo.toml
+      - src/linter/Cargo.toml
+      - src/flake-generator/Cargo.toml
+      - src/nix-dispatcher/Cargo.toml
+      - Cargo.toml
+      - Cargo.lock
+
+jobs:
+  detect-changes:
+    name: Detect changed crates
+    runs-on: ubuntu-24.04
+    outputs:
+      cli: ${{ steps.filter.outputs.cli }}
+      linter: ${{ steps.filter.outputs.linter }}
+      flake-generator: ${{ steps.filter.outputs.flake-generator }}
+      nix-dispatcher: ${{ steps.filter.outputs.nix-dispatcher }}
+      any-crate: ${{ steps.filter.outputs.any-crate }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            cli:
+              - src/cli/src/**/*.rs
+              - src/cli/Cargo.toml
+            linter:
+              - src/linter/src/**/*.rs
+              - src/linter/Cargo.toml
+            flake-generator:
+              - src/flake-generator/src/**/*.rs
+              - src/flake-generator/Cargo.toml
+            nix-dispatcher:
+              - src/nix-dispatcher/src/**/*.rs
+              - src/nix-dispatcher/Cargo.toml
+            any-crate:
+              - src/*/src/**/*.rs
+              - src/*/Cargo.toml
+              - Cargo.toml
+              - Cargo.lock
+
+  cargo-fmt-and-clippy:
+    name: cargo fmt + clippy
+    runs-on: ubuntu-24.04
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any-crate == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo fmt
+        run: cargo fmt --all --check
+
+      - name: Run cargo clippy on cli
+        if: needs.detect-changes.outputs.cli == 'true'
+        run: cargo clippy -p lnix --all-targets -- --deny warnings
+
+      - name: Run cargo clippy on linter
+        if: needs.detect-changes.outputs.linter == 'true'
+        run: cargo clippy -p lnix-linter --all-targets -- --deny warnings
+
+      - name: Run cargo clippy on flake-generator
+        if: needs.detect-changes.outputs.flake-generator == 'true'
+        run: cargo clippy -p lnix-flake-generator --all-targets -- --deny warnings
+
+      - name: Run cargo clippy on nix-dispatcher
+        if: needs.detect-changes.outputs.nix-dispatcher == 'true'
+        run: cargo clippy -p lnix-nix-dispatcher --all-targets -- --deny warnings
+
+  cargo-test:
+    name: cargo test
+    runs-on: ubuntu-24.04
+    needs: [detect-changes, cargo-fmt-and-clippy]
+    if: needs.detect-changes.outputs.any-crate == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo test on cli
+        if: needs.detect-changes.outputs.cli == 'true'
+        run: cargo test -p lnix
+
+      - name: Run cargo test on linter
+        if: needs.detect-changes.outputs.linter == 'true'
+        run: cargo test -p lnix-linter
+
+      - name: Run cargo test on flake-generator
+        if: needs.detect-changes.outputs.flake-generator == 'true'
+        run: cargo test -p lnix-flake-generator
+
+      - name: Run cargo test on nix-dispatcher
+        if: needs.detect-changes.outputs.nix-dispatcher == 'true'
+        run: cargo test -p lnix-nix-dispatcher
