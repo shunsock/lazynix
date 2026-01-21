@@ -1,0 +1,10 @@
+devShell:
+  allowUnfree: false
+  package:
+    stable:
+      - python312
+      - uv
+    unstable: []
+  shellHook:
+    - "echo Python $(python --version) ready!"
+    - "echo uv $(uv --version) ready!"

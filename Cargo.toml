@@ -1,0 +1,3 @@
+[workspace]
+members = ["src/cli", "src/linter", "src/flake-generator", "src/nix-dispatcher"]
+resolver = "2"

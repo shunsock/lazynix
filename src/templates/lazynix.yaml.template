@@ -1,0 +1,30 @@
+devShell:
+  allowUnfree: false
+  package:
+    stable:
+      - hello
+    unstable: []
+  shellHook:
+    - "echo Welcome to LazyNix DevShell!"
+
+  # Optional: Environment variables configuration
+  # Load variables from .env files and/or define them directly in YAML
+  # Remove the comment marks (#) to use this feature
+  # See documentation: docs/attribute/dotenv/README.md
+  # env:
+  #   dotenv:
+  #     - .env              # Load from .env file
+  #     - .env.local        # Load and override with .env.local (gitignore recommended)
+  #   envvar:
+  #     - name: PYTHONPATH
+  #       value: ./src
+  #     - name: LOG_LEVEL
+  #       value: info
+
+  # Optional: Test commands executed by 'lnix test'
+  # Tests run sequentially in the development environment
+  # Remove the comment marks (#) and add your test commands
+  # test:
+  #   - pytest
+  #   - cargo test
+  #   - npm run test

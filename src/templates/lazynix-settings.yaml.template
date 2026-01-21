@@ -1,0 +1,51 @@
+# LazyNix Settings Configuration (Optional)
+# This file allows customization of LazyNix system-level behaviors
+# Place this file in your project root as lazynix-settings.yaml
+
+# =============================================================================
+# Override Stable Nixpkgs Registry
+# =============================================================================
+#
+# By default, LazyNix uses "github:NixOS/nixpkgs/nixos-25.11" for stable packages.
+# You can override this to use different nixpkgs versions or custom forks.
+#
+# Common use cases:
+# - Pin to older nixpkgs version for compatibility
+# - Use newer nixpkgs version for latest packages
+# - Test against nixpkgs unstable
+# - Use custom fork or private registry
+# - Pin to specific commit for reproducibility
+#
+# Format: "github:OWNER/REPO/BRANCH" or "github:OWNER/REPO/COMMIT_HASH"
+#
+# Examples:
+#
+#   # Use NixOS 25.06 (older stable release)
+#   override-stable-package: "github:NixOS/nixpkgs/nixos-25.06"
+#
+#   # Use nixpkgs unstable (bleeding edge)
+#   override-stable-package: "github:NixOS/nixpkgs/nixos-unstable"
+#
+#   # Use specific commit hash (maximum reproducibility)
+#   override-stable-package: "github:NixOS/nixpkgs/a1b2c3d4e5f6"
+#
+#   # Use custom fork
+#   override-stable-package: "github:myorg/nixpkgs/custom-branch"
+#
+# If not specified or this file doesn't exist, defaults to: nixos-25.11
+#
+# Uncomment and modify the line below to enable override:
+# override-stable-package: "github:NixOS/nixpkgs/nixos-25.06"
+
+# =============================================================================
+# Important Notes
+# =============================================================================
+#
+# - This file is OPTIONAL. LazyNix works without it using sensible defaults.
+# - Invalid URLs will produce validation errors when running lnix commands.
+# - Changes take effect when you run: lnix develop, lnix build, or lnix run
+# - The generated flake.nix will reflect your override setting.
+# - Add lazynix-settings.yaml to .gitignore if settings are user-specific.
+#
+# For more information on Nix flake URL formats, see:
+# https://nixos.org/manual/nix/stable/command-ref/new-cli/nix3-flake.html#flake-references

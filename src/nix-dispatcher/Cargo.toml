@@ -1,0 +1,10 @@
+[package]
+name = "lnix-nix-dispatcher"
+version = "0.1.0"
+edition = "2024"
+description = "Nix command dispatcher for LazyNix"
+license = "MIT"
+repository = "https://github.com/shunsock/lazynix"
+
+[dependencies]
+thiserror = "1.0"

@@ -1,0 +1,24 @@
+[package]
+name = "lnix"
+version = "2.0.0"
+edition = "2024"
+
+[[bin]]
+name = "lnix"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "cargo", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+anyhow = "1.0"
+thiserror = "1.0"
+lnix-linter = { path = "../linter" }
+lnix-flake-generator = { path = "../flake-generator" }
+lnix-nix-dispatcher = { path = "../nix-dispatcher" }
+
+[dev-dependencies]
+tempfile = "3.15"
+serial_test = "3"
+assert_cmd = "2.0"
+predicates = "3.1"
