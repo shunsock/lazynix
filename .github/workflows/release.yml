@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate branch
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "Error: Release must be run from main branch"
+            exit 1
+          fi
+
+      - name: Get version from Cargo.toml
+        id: version
+        run: |
+          chmod +x scripts/get-version.sh
+          VERSION=$(./scripts/get-version.sh)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Check tag does not exist
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Error: Tag v$VERSION already exists"
+            exit 1
+          fi
+          echo "Tag v$VERSION does not exist, proceeding with release"
+
+  build-x86_64-linux:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Nix
+        uses: ./.github/actions/setup-nix
+
+      - name: Build for x86_64-linux
+        run: |
+          nix build .#releasePackages.x86_64-linux.rust_builder
+          cp result/bin/lnix lnix-x86_64-linux
+          chmod +x lnix-x86_64-linux
+
+      - name: Test binary
+        run: |
+          ./lnix-x86_64-linux --version
+          ./lnix-x86_64-linux --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lnix-x86_64-linux
+          path: lnix-x86_64-linux
+
+  build-aarch64-linux:
+    needs: prepare-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Nix
+        uses: ./.github/actions/setup-nix
+
+      - name: Enable aarch64 support
+        run: |
+          mkdir -p ~/.config/nix
+          echo "extra-platforms = aarch64-linux" >> ~/.config/nix/nix.conf
+
+      - name: Build for aarch64-linux
+        run: |
+          nix build .#releasePackages.aarch64-linux.rust_builder
+          cp result/bin/lnix lnix-aarch64-linux
+          chmod +x lnix-aarch64-linux
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lnix-aarch64-linux
+          path: lnix-aarch64-linux
+
+  build-aarch64-darwin:
+    needs: prepare-release
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Nix
+        uses: ./.github/actions/setup-nix
+
+      - name: Build for aarch64-darwin
+        run: |
+          nix build .#releasePackages.aarch64-darwin.rust_builder
+          cp result/bin/lnix lnix-aarch64-darwin
+          chmod +x lnix-aarch64-darwin
+
+      - name: Test binary
+        run: |
+          ./lnix-aarch64-darwin --version
+          ./lnix-aarch64-darwin --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lnix-aarch64-darwin
+          path: lnix-aarch64-darwin
+
+  create-release:
+    needs:
+      - prepare-release
+      - build-x86_64-linux
+      - build-aarch64-linux
+      - build-aarch64-darwin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare binaries
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+        run: |
+          mkdir -p release-binaries
+          cp artifacts/lnix-x86_64-linux/lnix-x86_64-linux release-binaries/
+          cp artifacts/lnix-aarch64-linux/lnix-aarch64-linux release-binaries/
+          cp artifacts/lnix-aarch64-darwin/lnix-aarch64-darwin release-binaries/
+          chmod +x release-binaries/*
+          ls -lh release-binaries/
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Create GitHub Release
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release-binaries
+
+          gh release create "v$VERSION" \
+            --title "Release v$VERSION" \
+            --generate-notes \
+            lnix-x86_64-linux \
+            lnix-aarch64-linux \
+            lnix-aarch64-darwin
+
+          echo "GitHub Release v$VERSION created successfully"

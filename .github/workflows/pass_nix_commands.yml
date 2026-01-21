@@ -1,0 +1,32 @@
+name: Nix Commands CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - flake.nix
+      - flake.lock
+
+jobs:
+  nix-flow:
+    name: ${{ matrix.os }} run
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Nix
+        uses: ./.github/actions/setup-nix
+
+      - name: Run nix build
+        run: nix build
+
+      - name: Run nix develop
+        run: nix develop --command echo "Development shell activated successfully"
+
+      - name: Run nix run
+        run: nix run . -- --help
