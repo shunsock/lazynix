@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="512" height="256" alt="LazyNix Logo" src="https://github.com/user-attachments/assets/d3995d96-0ee4-45ce-9063-5d0c39864504" />
+  <img width="512" height="256" alt="LazyNix Logo" src="./logo.png" />
 </p>
 <p align="center">
   <em>Providing reproducible environments for all developers</em>
