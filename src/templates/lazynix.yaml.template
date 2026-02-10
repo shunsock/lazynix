@@ -7,6 +7,14 @@ devShell:
   shellHook:
     - "echo Welcome to LazyNix DevShell!"
 
+  # Optional: Load shell aliases from files
+  # Extracts alias definitions and loads them into the DevShell environment
+  # Remove the comment marks (#) to use this feature
+  # shellAlias:
+  #   - ./aliases.sh      # Relative path (resolved to $PWD/aliases.sh)
+  #   - ~/.bash_aliases   # Tilde expansion (resolved to $HOME/.bash_aliases)
+  #   - /etc/aliases.sh   # Absolute path (used as-is)
+
   # Optional: Environment variables configuration
   # Load variables from .env files and/or define them directly in YAML
   # Remove the comment marks (#) to use this feature
