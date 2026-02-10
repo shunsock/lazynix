@@ -5,9 +5,9 @@ fn is_absolute_path(path: &str) -> bool {
 }
 
 fn resolve_path(path: &str) -> String {
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         // Tilde expansion at runtime
-        format!("$HOME/{}", &path[2..])
+        format!("$HOME/{}", stripped)
     } else if is_absolute_path(path) {
         path.to_string()
     } else {
