@@ -612,10 +612,8 @@ mod tests {
     #[test]
     fn test_render_shell_alias_multiple_files() {
         let mut config = create_default_config();
-        config.dev_shell.shell_alias = vec![
-            "./aliases.sh".to_string(),
-            "~/.my_aliases".to_string(),
-        ];
+        config.dev_shell.shell_alias =
+            vec!["./aliases.sh".to_string(), "~/.my_aliases".to_string()];
 
         let flake = render_flake(&config, None);
 
