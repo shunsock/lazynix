@@ -5,7 +5,10 @@ fn is_absolute_path(path: &str) -> bool {
 }
 
 fn resolve_path(path: &str) -> String {
-    if is_absolute_path(path) {
+    if let Some(stripped) = path.strip_prefix("~/") {
+        // Tilde expansion at runtime
+        format!("$HOME/{}", stripped)
+    } else if is_absolute_path(path) {
         path.to_string()
     } else {
         // For relative paths, resolve them relative to $PWD at runtime
@@ -40,6 +43,27 @@ fn render_dotenv_loading(dotenv_files: &[String]) -> String {
             source "{}"
             set +a"#,
                 file, resolved_path
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn render_shell_alias_loading(alias_files: &[String]) -> String {
+    if alias_files.is_empty() {
+        return String::new();
+    }
+
+    alias_files
+        .iter()
+        .map(|file| {
+            let resolved_path = resolve_path(file);
+            format!(
+                r#"            # Load shell aliases: {}
+            if [ -f "{}" ]; then
+                eval "$(grep '^alias ' "{}" 2>/dev/null || true)"
+            fi"#,
+                file, resolved_path, resolved_path
             )
         })
         .collect::<Vec<_>>()
@@ -149,6 +173,9 @@ pub fn render_flake(config: &Config, override_stable_package: Option<&str>) -> S
         String::new()
     };
 
+    // Format shell alias loading
+    let shell_alias_hook = render_shell_alias_loading(&config.dev_shell.shell_alias);
+
     // Format user-defined shell hooks
     let user_shell_hook = if config.dev_shell.shell_hook.is_empty() {
         String::from("            echo \"Welcome to LazyNix DevShell!\"")
@@ -169,13 +196,16 @@ pub fn render_flake(config: &Config, override_stable_package: Option<&str>) -> S
         String::new()
     };
 
-    // Combine dotenv loading, envvar export, and user shell hooks
+    // Combine dotenv loading, envvar export, shell alias loading, and user shell hooks
     let mut shell_hook_parts = Vec::new();
     if !dotenv_hook.is_empty() {
         shell_hook_parts.push(dotenv_hook);
     }
     if !envvar_hook.is_empty() {
         shell_hook_parts.push(envvar_hook);
+    }
+    if !shell_alias_hook.is_empty() {
+        shell_hook_parts.push(shell_alias_hook);
     }
     shell_hook_parts.push(user_shell_hook);
 
@@ -255,6 +285,7 @@ mod tests {
                 env: None,
                 test: vec![],
                 task: None,
+                shell_alias: vec![],
             },
         }
     }
@@ -555,5 +586,95 @@ mod tests {
         assert!(!flake.contains("LAZYNIX_TEST_MODE"));
         assert!(!flake.contains("TESTS_FAILED"));
         assert!(flake.contains("Welcome to LazyNix DevShell!"));
+    }
+
+    #[test]
+    fn test_render_flake_with_empty_shell_alias() {
+        let config = create_default_config();
+        let flake = render_flake(&config, None);
+
+        assert!(!flake.contains("Load shell aliases"));
+        assert!(!flake.contains("grep '^alias '"));
+    }
+
+    #[test]
+    fn test_render_shell_alias_single_file() {
+        let mut config = create_default_config();
+        config.dev_shell.shell_alias = vec!["./aliases.sh".to_string()];
+
+        let flake = render_flake(&config, None);
+
+        assert!(flake.contains("Load shell aliases: ./aliases.sh"));
+        assert!(flake.contains("$PWD/aliases.sh"));
+        assert!(flake.contains("grep '^alias '"));
+    }
+
+    #[test]
+    fn test_render_shell_alias_multiple_files() {
+        let mut config = create_default_config();
+        config.dev_shell.shell_alias =
+            vec!["./aliases.sh".to_string(), "~/.my_aliases".to_string()];
+
+        let flake = render_flake(&config, None);
+
+        assert!(flake.contains("Load shell aliases: ./aliases.sh"));
+        assert!(flake.contains("$PWD/aliases.sh"));
+        assert!(flake.contains("Load shell aliases: ~/.my_aliases"));
+        assert!(flake.contains("$HOME/.my_aliases"));
+    }
+
+    #[test]
+    fn test_render_shell_alias_absolute_path() {
+        let mut config = create_default_config();
+        config.dev_shell.shell_alias = vec!["/etc/aliases.sh".to_string()];
+
+        let flake = render_flake(&config, None);
+
+        assert!(flake.contains("/etc/aliases.sh"));
+        assert!(!flake.contains("$PWD/etc/aliases.sh"));
+    }
+
+    #[test]
+    fn test_render_shell_alias_tilde_expansion() {
+        let mut config = create_default_config();
+        config.dev_shell.shell_alias = vec!["~/.aliases".to_string()];
+
+        let flake = render_flake(&config, None);
+
+        assert!(flake.contains("$HOME/.aliases"));
+        assert!(!flake.contains("~/.aliases\" 2>/dev/null")); // Should be expanded
+    }
+
+    #[test]
+    fn test_shell_hook_integration_order() {
+        let mut config = create_default_config();
+        config.dev_shell.env = Some(Env {
+            dotenv: vec![".env".to_string()],
+            envvar: vec![EnvVar {
+                name: "TEST".to_string(),
+                value: "value".to_string(),
+            }],
+        });
+        config.dev_shell.shell_alias = vec!["./aliases.sh".to_string()];
+        config.dev_shell.shell_hook = vec!["echo 'user hook'".to_string()];
+
+        let flake = render_flake(&config, None);
+
+        // Verify order: dotenv → envvar → shell_alias → user hook
+        let dotenv_pos = flake.find("Load dotenv").unwrap();
+        let envvar_pos = flake.find("export TEST=").unwrap();
+        let alias_pos = flake.find("Load shell aliases").unwrap();
+        let user_pos = flake.find("echo 'user hook'").unwrap();
+
+        assert!(dotenv_pos < envvar_pos);
+        assert!(envvar_pos < alias_pos);
+        assert!(alias_pos < user_pos);
+    }
+
+    #[test]
+    fn test_path_resolution_tilde() {
+        // Test tilde expansion
+        assert_eq!(resolve_path("~/foo"), "$HOME/foo");
+        assert_eq!(resolve_path("~/.aliases"), "$HOME/.aliases");
     }
 }

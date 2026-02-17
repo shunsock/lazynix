@@ -29,6 +29,11 @@ pub struct DevShell {
 
     #[serde(default)]
     pub task: Option<HashMap<String, TaskDef>>,
+
+    /// Shell alias files to load
+    /// Extract alias definitions from specified files
+    #[serde(default)]
+    pub shell_alias: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -422,5 +427,34 @@ devShell:
             .unwrap_err()
             .to_string()
             .contains("empty commands list"));
+    }
+
+    #[test]
+    fn test_deserialize_yaml_with_shell_alias() {
+        let yaml = r#"
+devShell:
+  package:
+    stable:
+      - bash
+  shellAlias:
+    - ./aliases.sh
+    - ~/.my_aliases
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.dev_shell.shell_alias.len(), 2);
+        assert_eq!(config.dev_shell.shell_alias[0], "./aliases.sh");
+        assert_eq!(config.dev_shell.shell_alias[1], "~/.my_aliases");
+    }
+
+    #[test]
+    fn test_deserialize_yaml_without_shell_alias() {
+        let yaml = r#"
+devShell:
+  package:
+    stable:
+      - bash
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.dev_shell.shell_alias.len(), 0);
     }
 }

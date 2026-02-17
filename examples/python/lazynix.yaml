@@ -8,3 +8,7 @@ devShell:
   shellHook:
     - "echo Python $(python --version) ready!"
     - "echo uv $(uv --version) ready!"
+  # shellAlias:
+  #   - ./aliases.sh      # Relative path (resolved to $PWD/aliases.sh)
+  #   - ~/.bash_aliases   # Tilde expansion (resolved to $HOME/.bash_aliases)
+  #   - /etc/aliases.sh   # Absolute path (used as-is)
