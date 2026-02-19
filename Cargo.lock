@@ -321,7 +321,7 @@ checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
 
 [[package]]
 name = "lnix"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "lnix-flake-generator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -351,7 +351,7 @@ dependencies = [
 
 [[package]]
 name = "lnix-linter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "rayon",
@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "lnix-nix-dispatcher"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "thiserror",
 ]
