@@ -24,7 +24,7 @@ vim lazynix.yaml # edit lazynix.yaml
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
       - python312

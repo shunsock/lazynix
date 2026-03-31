@@ -114,7 +114,7 @@ Edit `lazynix.yaml` to specify your development tools. Find packages at [search.
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
 
   package:
     stable:

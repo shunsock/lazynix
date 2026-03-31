@@ -1,5 +1,5 @@
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
       - hello
