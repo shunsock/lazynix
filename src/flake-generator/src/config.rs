@@ -13,7 +13,7 @@ pub struct Config {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevShell {
-    #[serde(default)]
+    #[serde(default = "default_allow_unfree")]
     pub allow_unfree: bool,
 
     pub package: Package,
@@ -70,6 +70,10 @@ pub struct TaskDef {
     pub description: Option<String>,
 
     pub commands: Vec<String>,
+}
+
+fn default_allow_unfree() -> bool {
+    true
 }
 
 fn is_valid_task_name(name: &str) -> bool {

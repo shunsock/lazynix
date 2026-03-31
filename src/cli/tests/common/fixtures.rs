@@ -2,7 +2,7 @@
 #[allow(dead_code)]
 pub fn minimal_config() -> String {
     r#"devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
       - bash
@@ -16,7 +16,7 @@ pub fn minimal_config() -> String {
 pub fn config_with_packages(stable: &[&str], unstable: &[&str]) -> String {
     format!(
         r#"devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
 {}
@@ -50,7 +50,7 @@ pub fn config_with_packages(stable: &[&str], unstable: &[&str]) -> String {
 pub fn config_with_test_commands(tests: &[&str]) -> String {
     format!(
         r#"devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
       - bash
@@ -82,7 +82,7 @@ pub fn config_with_tasks(tasks: &[(&str, Vec<&str>, Option<&str>)]) -> String {
 
     format!(
         r#"devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
       - bash
@@ -97,7 +97,7 @@ pub fn config_with_tasks(tasks: &[(&str, Vec<&str>, Option<&str>)]) -> String {
 #[allow(dead_code)]
 pub fn invalid_yaml_config() -> String {
     r#"devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
       - hello

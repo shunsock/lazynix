@@ -276,7 +276,7 @@ mod tests {
     fn create_default_config() -> Config {
         Config {
             dev_shell: DevShell {
-                allow_unfree: false,
+                allow_unfree: true,
                 package: Package {
                     stable: vec!["bash".to_string()],
                     unstable: vec![],
@@ -332,15 +332,15 @@ mod tests {
         assert!(flake.contains("stablePackages.gcc"));
         assert!(flake.contains("unstablePackages.rust-analyzer"));
         assert!(flake.contains("echo Hello"));
-        assert!(flake.contains("config.allowUnfree = false"));
+        assert!(flake.contains("config.allowUnfree = true"));
     }
 
     #[test]
-    fn test_render_flake_allow_unfree() {
-        let config = create_config_with_allow_unfree(true);
+    fn test_render_flake_deny_unfree() {
+        let config = create_config_with_allow_unfree(false);
 
         let flake = render_flake(&config, None);
-        assert!(flake.contains("config.allowUnfree = true"));
+        assert!(flake.contains("config.allowUnfree = false"));
     }
 
     #[test]
