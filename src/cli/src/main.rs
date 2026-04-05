@@ -12,7 +12,7 @@ use lazynix_settings_yaml::Settings;
 use lnix_flake_generator::{LazyNixParser, render_flake, validate_config};
 use lnix_nix_dispatcher::{
     resolve_version, run_flake_update, run_nix_develop, run_nix_develop_command, run_nix_test,
-    run_task_in_nix_env,
+    run_task_in_nix_env, search_versions,
 };
 use std::fs;
 use std::path::Path;
@@ -77,6 +77,12 @@ fn run() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Commands::Search {
+            package_name,
+            version,
+            json,
+            one,
+        } => cmd_search(&package_name, version.as_deref(), json, one)?,
     }
 
     Ok(())
@@ -349,4 +355,15 @@ fn resolve_pinned_packages(
     }
 
     Ok(resolved_any)
+}
+
+fn cmd_search(
+    package_name: &str,
+    version: Option<&str>,
+    json: bool,
+    one: bool,
+) -> Result<()> {
+    let output = search_versions(package_name, version, json, one)?;
+    print!("{}", output);
+    Ok(())
 }

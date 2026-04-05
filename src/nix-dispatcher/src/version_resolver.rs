@@ -81,6 +81,53 @@ pub fn resolve_version(package_name: &str, version: &str) -> Result<ResolvedVers
     parse_installable(&result.installable)
 }
 
+/// Search for package versions via nix-versions.
+///
+/// Calls `nix run github:vic/nix-versions -- [flags] '<spec>'`
+/// and returns the raw output.
+pub fn search_versions(
+    package_name: &str,
+    version_constraint: Option<&str>,
+    json: bool,
+    one: bool,
+) -> Result<String> {
+    let spec = match version_constraint {
+        Some(constraint) => format!("{}@{}", package_name, constraint),
+        None => package_name.to_string(),
+    };
+
+    let mut cmd = Command::new("nix");
+    cmd.arg("run")
+        .arg("github:vic/nix-versions")
+        .arg("--");
+
+    if json {
+        cmd.arg("--json");
+    } else {
+        cmd.arg("--text");
+    }
+
+    if one {
+        cmd.arg("--one");
+    }
+
+    cmd.arg(&spec);
+
+    let output = cmd.output().map_err(|e| {
+        NixDispatcherError::CommandExecution(format!("Failed to execute nix-versions: {}", e))
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(NixDispatcherError::CommandExecution(format!(
+            "nix-versions search failed for '{}': {}",
+            spec, stderr
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
