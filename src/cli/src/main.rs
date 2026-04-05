@@ -11,7 +11,8 @@ use error::Result;
 use lazynix_settings_yaml::Settings;
 use lnix_flake_generator::{LazyNixParser, render_flake, validate_config};
 use lnix_nix_dispatcher::{
-    run_flake_update, run_nix_develop, run_nix_develop_command, run_nix_test, run_task_in_nix_env,
+    resolve_version, run_flake_update, run_nix_develop, run_nix_develop_command, run_nix_test,
+    run_task_in_nix_env,
 };
 use std::fs;
 use std::path::Path;
@@ -140,7 +141,7 @@ fn cmd_develop(config_dir: &Path, update_lock: bool) -> Result<()> {
     // Step 2: Read and parse config using LazyNixParser
     println!("Reading configuration from {}...", config_dir.display());
     let parser = LazyNixParser::new(config_dir.to_path_buf());
-    let config = parser.read_config()?;
+    let mut config = parser.read_config()?;
 
     // Step 3: Validate config
     println!("Validating configuration...");
@@ -148,6 +149,9 @@ fn cmd_develop(config_dir: &Path, update_lock: bool) -> Result<()> {
 
     // Step 3.5: Validate env configuration
     env_validator::validate_env_config(&config.dev_shell.env, config_dir)?;
+
+    // Step 3.6: Resolve pinned package versions
+    resolve_pinned_packages(&parser, &mut config)?;
 
     // Step 4: Generate flake.nix
     println!("Generating flake.nix...");
@@ -179,7 +183,7 @@ fn cmd_test(config_dir: &Path, update_lock: bool) -> Result<()> {
     // Step 2: Read and parse config using LazyNixParser
     println!("Reading configuration from {}...", config_dir.display());
     let parser = LazyNixParser::new(config_dir.to_path_buf());
-    let config = parser.read_config()?;
+    let mut config = parser.read_config()?;
 
     // Step 3: Validate config
     println!("Validating configuration...");
@@ -187,6 +191,9 @@ fn cmd_test(config_dir: &Path, update_lock: bool) -> Result<()> {
 
     // Step 3.5: Validate env configuration
     env_validator::validate_env_config(&config.dev_shell.env, config_dir)?;
+
+    // Step 3.6: Resolve pinned package versions
+    resolve_pinned_packages(&parser, &mut config)?;
 
     // Step 4: Validate test attribute is not empty
     if config.dev_shell.test.is_empty() {
@@ -246,7 +253,7 @@ fn cmd_run(
         // Step 2: Read and parse config using LazyNixParser
         println!("Reading configuration from {}...", config_dir.display());
         let parser = LazyNixParser::new(config_dir.to_path_buf());
-        let config = parser.read_config()?;
+        let mut config = parser.read_config()?;
 
         // Step 3: Validate config
         println!("Validating configuration...");
@@ -254,6 +261,9 @@ fn cmd_run(
 
         // Step 3.5: Validate env configuration
         env_validator::validate_env_config(&config.dev_shell.env, config_dir)?;
+
+        // Step 3.6: Resolve pinned package versions
+        resolve_pinned_packages(&parser, &mut config)?;
 
         // Step 4: Generate flake.nix
         println!("Generating flake.nix...");
@@ -311,4 +321,32 @@ fn cmd_task(config_dir: &Path, task_name: String, args: Vec<String>) -> Result<i
     // Step 7: Execute task in nix develop environment
     let exit_code = run_task_in_nix_env(commands)?;
     Ok(exit_code)
+}
+
+fn resolve_pinned_packages(
+    parser: &LazyNixParser,
+    config: &mut lnix_flake_generator::Config,
+) -> Result<bool> {
+    let mut resolved_any = false;
+    for entry in &mut config.dev_shell.package.pinned {
+        if entry.resolved_commit.is_some() && entry.resolved_attr.is_some() {
+            continue;
+        }
+        println!(
+            "Resolving version for {} @ {}...",
+            entry.name, entry.version
+        );
+        let resolved = resolve_version(&entry.name, &entry.version)?;
+        entry.resolved_commit = Some(resolved.commit);
+        entry.resolved_attr = Some(resolved.attr);
+        resolved_any = true;
+    }
+
+    if resolved_any {
+        let yaml_content = serde_yaml::to_string(&config)?;
+        parser.write_config(&yaml_content)?;
+        println!("Updated lazynix.yaml with resolved versions");
+    }
+
+    Ok(resolved_any)
 }
