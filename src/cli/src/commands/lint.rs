@@ -19,14 +19,14 @@ pub fn execute(config_dir: &str, verbose: bool, arch: Option<&str>) -> Result<bo
     let parser = LazyNixParser::new(PathBuf::from(config_dir));
     let config = parser.read_config()?;
 
-    // Extract all package names (stable + unstable)
+    // Extract all package names (stable + unstable + resolved pinned)
     let mut packages: Vec<String> = Vec::new();
 
     // Add stable packages
-    packages.extend(config.dev_shell.package.stable.iter().cloned());
+    packages.extend(config.dev_shell.package.stable.iter().map(|e| e.name.clone()));
 
     // Add unstable packages
-    packages.extend(config.dev_shell.package.unstable.iter().cloned());
+    packages.extend(config.dev_shell.package.unstable.iter().map(|e| e.name.clone()));
 
     if packages.is_empty() {
         println!("No packages to validate.");

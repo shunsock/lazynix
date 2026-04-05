@@ -27,11 +27,11 @@
         devShells.default = stablePackages.mkShell {
           buildInputs = [
             # Stable packages
-            stablePackages.hello
+            stablePackages.bash
           ];
 
           shellHook = ''
-            echo Welcome to LazyNix DevShell!
+            echo "Welcome to LazyNix DevShell!"
           '';
         };
       }

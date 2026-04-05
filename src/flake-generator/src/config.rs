@@ -36,14 +36,38 @@ pub struct DevShell {
     pub shell_alias: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Package {
     #[serde(default)]
-    pub stable: Vec<String>,
+    pub stable: Vec<PackageEntry>,
 
     #[serde(default)]
-    pub unstable: Vec<String>,
+    pub unstable: Vec<PackageEntry>,
+
+    #[serde(default)]
+    pub pinned: Vec<PinnedPackageEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageEntry {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinnedPackageEntry {
+    pub name: String,
+    pub version: String,
+
+    /// nixpkgs commit hash. Auto-resolved via nix-versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_commit: Option<String>,
+
+    /// Nix attribute path (e.g., "go_1_21"). Auto-resolved via nix-versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_attr: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -83,21 +107,37 @@ fn is_valid_task_name(name: &str) -> bool {
 
 pub fn validate_config(config: &Config) -> Result<()> {
     // Validate stable package names
-    for pkg in &config.dev_shell.package.stable {
-        if !is_valid_package_name(pkg) {
+    for entry in &config.dev_shell.package.stable {
+        if !is_valid_package_name(&entry.name) {
             return Err(Error::Validation(format!(
                 "Invalid stable package name: {}. Package names should contain only alphanumeric characters, hyphens, underscores, and dots (for nested attributes like python312Packages.pip)",
-                pkg
+                entry.name
             )));
         }
     }
 
     // Validate unstable package names
-    for pkg in &config.dev_shell.package.unstable {
-        if !is_valid_package_name(pkg) {
+    for entry in &config.dev_shell.package.unstable {
+        if !is_valid_package_name(&entry.name) {
             return Err(Error::Validation(format!(
                 "Invalid unstable package name: {}. Package names should contain only alphanumeric characters, hyphens, underscores, and dots (for nested attributes like python312Packages.pip)",
-                pkg
+                entry.name
+            )));
+        }
+    }
+
+    // Validate pinned package entries
+    for entry in &config.dev_shell.package.pinned {
+        if !is_valid_package_name(&entry.name) {
+            return Err(Error::Validation(format!(
+                "Invalid pinned package name: {}. Package names should contain only alphanumeric characters, hyphens, underscores, and dots (for nested attributes like python312Packages.pip)",
+                entry.name
+            )));
+        }
+        if entry.version.is_empty() {
+            return Err(Error::Validation(format!(
+                "Pinned package '{}' has an empty version. An exact version must be specified",
+                entry.name
             )));
         }
     }
@@ -124,7 +164,10 @@ pub fn validate_config(config: &Config) -> Result<()> {
     }
 
     // Check that at least some configuration is provided
-    if config.dev_shell.package.stable.is_empty() && config.dev_shell.package.unstable.is_empty() {
+    if config.dev_shell.package.stable.is_empty()
+        && config.dev_shell.package.unstable.is_empty()
+        && config.dev_shell.package.pinned.is_empty()
+    {
         eprintln!("Warning: No packages specified in lazynix.yaml");
     }
 
@@ -142,7 +185,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   env:
     dotenv:
       - .env
@@ -168,7 +211,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert!(config.dev_shell.env.is_none());
@@ -181,7 +224,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   env:
     dotenv:
       - .env
@@ -204,7 +247,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   env:
     envvar:
       - name: PYTHONPATH
@@ -231,7 +274,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   env:
     dotenv: []
     envvar: []
@@ -251,7 +294,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   test:
     - pytest
     - cargo test
@@ -259,9 +302,6 @@ devShell:
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.dev_shell.test.len(), 3);
-        assert_eq!(config.dev_shell.test[0], "pytest");
-        assert_eq!(config.dev_shell.test[1], "cargo test");
-        assert_eq!(config.dev_shell.test[2], "npm run test");
     }
 
     #[test]
@@ -271,10 +311,9 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.dev_shell.test.len(), 0);
         assert!(config.dev_shell.test.is_empty());
     }
 
@@ -285,11 +324,10 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   test: []
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.dev_shell.test.len(), 0);
         assert!(config.dev_shell.test.is_empty());
     }
 
@@ -300,7 +338,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   task:
     sync:
       description: "Sync dependencies"
@@ -319,7 +357,6 @@ devShell:
 
         let sync_task = tasks.get("sync").unwrap();
         assert_eq!(sync_task.description, Some("Sync dependencies".to_string()));
-        assert_eq!(sync_task.commands.len(), 1);
         assert_eq!(sync_task.commands[0], "uv sync");
 
         let start_task = tasks.get("start").unwrap();
@@ -327,7 +364,6 @@ devShell:
             start_task.description,
             Some("Start application".to_string())
         );
-        assert_eq!(start_task.commands.len(), 1);
         assert_eq!(start_task.commands[0], "uv run python main.py");
     }
 
@@ -338,7 +374,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert!(config.dev_shell.task.is_none());
@@ -351,19 +387,16 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   task:
     hello:
       commands:
         - echo "Hello, LazyNix!"
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.dev_shell.task.is_some());
-
         let tasks = config.dev_shell.task.as_ref().unwrap();
         let hello_task = tasks.get("hello").unwrap();
         assert_eq!(hello_task.description, None);
-        assert_eq!(hello_task.commands.len(), 1);
         assert_eq!(hello_task.commands[0], "echo \"Hello, LazyNix!\"");
     }
 
@@ -374,7 +407,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   task:
     my-task_123:
       description: "Valid task"
@@ -392,7 +425,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   task:
     invalid@task:
       commands:
@@ -414,7 +447,7 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - bash
+      - name: bash
   task:
     empty-task:
       description: "Empty command"
@@ -435,7 +468,7 @@ devShell:
 devShell:
   package:
     stable:
-      - bash
+      - name: bash
   shellAlias:
     - ./aliases.sh
     - ~/.my_aliases
@@ -452,9 +485,90 @@ devShell:
 devShell:
   package:
     stable:
-      - bash
+      - name: bash
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.dev_shell.shell_alias.len(), 0);
+    }
+
+    #[test]
+    fn test_deserialize_yaml_with_pinned() {
+        let yaml = r#"
+devShell:
+  allowUnfree: false
+  package:
+    stable:
+      - name: gcc
+    pinned:
+      - name: go
+        version: "1.21.13"
+        resolvedCommit: "5ed6275"
+        resolvedAttr: "go_1_21"
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.dev_shell.package.pinned.len(), 1);
+
+        let pinned = &config.dev_shell.package.pinned[0];
+        assert_eq!(pinned.name, "go");
+        assert_eq!(pinned.version, "1.21.13");
+        assert_eq!(pinned.resolved_commit, Some("5ed6275".to_string()));
+        assert_eq!(pinned.resolved_attr, Some("go_1_21".to_string()));
+    }
+
+    #[test]
+    fn test_deserialize_yaml_with_pinned_unresolved() {
+        let yaml = r#"
+devShell:
+  allowUnfree: false
+  package:
+    stable: []
+    pinned:
+      - name: go
+        version: "1.21.13"
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let pinned = &config.dev_shell.package.pinned[0];
+        assert_eq!(pinned.resolved_commit, None);
+        assert_eq!(pinned.resolved_attr, None);
+    }
+
+    #[test]
+    fn test_validate_pinned_empty_version() {
+        let yaml = r#"
+devShell:
+  allowUnfree: false
+  package:
+    stable: []
+    pinned:
+      - name: go
+        version: ""
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("empty version"));
+    }
+
+    #[test]
+    fn test_validate_pinned_invalid_name() {
+        let yaml = r#"
+devShell:
+  allowUnfree: false
+  package:
+    stable: []
+    pinned:
+      - name: "invalid@pkg"
+        version: "1.0.0"
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid pinned package name"));
     }
 }

@@ -109,21 +109,19 @@ mod tests {
     #[serial]
     fn test_parser_read_config_success() {
         with_temp_dir(|_temp_dir| {
-            // Create config file
             let config_content = r#"
 devShell:
   allowUnfree: false
   package:
     stable:
-      - python312
+      - name: python312
 "#;
             fs::write("lazynix.yaml", config_content).unwrap();
 
-            // Read via struct with explicit path
             let parser = LazyNixParser::new(PathBuf::from("."));
             let config = parser.read_config().unwrap();
 
-            assert_eq!(config.dev_shell.package.stable, vec!["python312"]);
+            assert_eq!(config.dev_shell.package.stable[0].name, "python312");
         });
     }
 
@@ -131,7 +129,6 @@ devShell:
     #[serial]
     fn test_parser_read_config_custom_dir() {
         with_temp_dir(|_temp_dir| {
-            // Create configs subdirectory
             fs::create_dir("configs").unwrap();
 
             let config_content = r#"
@@ -139,16 +136,15 @@ devShell:
   allowUnfree: true
   package:
     stable:
-      - rust
+      - name: rust
 "#;
             fs::write("configs/lazynix.yaml", config_content).unwrap();
 
-            // Read from custom directory
             let parser = LazyNixParser::new(PathBuf::from("./configs"));
             let config = parser.read_config().unwrap();
 
             assert!(config.dev_shell.allow_unfree);
-            assert_eq!(config.dev_shell.package.stable, vec!["rust"]);
+            assert_eq!(config.dev_shell.package.stable[0].name, "rust");
         });
     }
 
@@ -178,14 +174,13 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - gcc
+      - name: gcc
 "#;
             fs::write("lazynix.yaml", config_content).unwrap();
 
-            // Public function should still work
             let config = read_config().unwrap();
 
-            assert_eq!(config.dev_shell.package.stable, vec!["gcc"]);
+            assert_eq!(config.dev_shell.package.stable[0].name, "gcc");
         });
     }
 

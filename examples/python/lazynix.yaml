@@ -2,9 +2,10 @@ devShell:
   allowUnfree: false
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
   shellHook:
     - "echo Python $(python --version) ready!"
     - "echo uv $(uv --version) ready!"
