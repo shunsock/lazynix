@@ -391,6 +391,8 @@ dependencies = [
 name = "lnix-nix-dispatcher"
 version = "1.0.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "thiserror",
 ]
 

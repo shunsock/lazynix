@@ -1,4 +1,4 @@
-use crate::config::{Config, EnvVar};
+use crate::config::{Config, EnvVar, PinnedPackageEntry};
 
 fn is_absolute_path(path: &str) -> bool {
     path.starts_with('/')
@@ -114,11 +114,40 @@ fi"#,
     )
 }
 
+fn normalize_version(version: &str) -> String {
+    version.replace('.', "-")
+}
+
+fn pinned_input_name(entry: &PinnedPackageEntry) -> String {
+    format!(
+        "nixpkgs--{}--{}",
+        entry.name,
+        normalize_version(&entry.version)
+    )
+}
+
+fn pinned_binding_name(entry: &PinnedPackageEntry) -> String {
+    format!(
+        "pinnedPkgs-{}-{}",
+        entry.name,
+        normalize_version(&entry.version)
+    )
+}
+
 pub fn render_flake(config: &Config, override_stable_package: Option<&str>) -> String {
     let allow_unfree = config.dev_shell.allow_unfree;
 
     // Determine stable nixpkgs URL (use override if provided, otherwise default)
     let stable_url = override_stable_package.unwrap_or("github:NixOS/nixpkgs/nixos-25.11");
+
+    // Collect resolved pinned entries
+    let resolved_pinned: Vec<&PinnedPackageEntry> = config
+        .dev_shell
+        .package
+        .pinned
+        .iter()
+        .filter(|p| p.resolved_commit.is_some() && p.resolved_attr.is_some())
+        .collect();
 
     // Format stable packages
     let stable_packages = if config.dev_shell.package.stable.is_empty() {
@@ -129,7 +158,7 @@ pub fn render_flake(config: &Config, override_stable_package: Option<&str>) -> S
             .package
             .stable
             .iter()
-            .map(|pkg| format!("            stablePackages.{}", pkg))
+            .map(|entry| format!("            stablePackages.{}", entry.name))
             .collect::<Vec<_>>()
             .join("\n")
     };
@@ -143,20 +172,50 @@ pub fn render_flake(config: &Config, override_stable_package: Option<&str>) -> S
             .package
             .unstable
             .iter()
-            .map(|pkg| format!("            unstablePackages.{}", pkg))
+            .map(|entry| format!("            unstablePackages.{}", entry.name))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // Format pinned packages
+    let pinned_packages = if resolved_pinned.is_empty() {
+        String::new()
+    } else {
+        resolved_pinned
+            .iter()
+            .map(|entry| {
+                let binding = pinned_binding_name(entry);
+                let attr = entry.resolved_attr.as_ref().unwrap();
+                format!("            {}.{}", binding, attr)
+            })
             .collect::<Vec<_>>()
             .join("\n")
     };
 
     // Combine package lists
-    let build_inputs = match (!stable_packages.is_empty(), !unstable_packages.is_empty()) {
-        (true, true) => format!(
-            "            # Stable packages\n{}\n            # Unstable packages\n{}",
-            stable_packages, unstable_packages
-        ),
-        (true, false) => format!("            # Stable packages\n{}", stable_packages),
-        (false, true) => format!("            # Unstable packages\n{}", unstable_packages),
-        (false, false) => String::from("            # No packages specified"),
+    let mut build_input_parts = Vec::new();
+    if !stable_packages.is_empty() {
+        build_input_parts.push(format!(
+            "            # Stable packages\n{}",
+            stable_packages
+        ));
+    }
+    if !unstable_packages.is_empty() {
+        build_input_parts.push(format!(
+            "            # Unstable packages\n{}",
+            unstable_packages
+        ));
+    }
+    if !pinned_packages.is_empty() {
+        build_input_parts.push(format!(
+            "            # Pinned packages\n{}",
+            pinned_packages
+        ));
+    }
+    let build_inputs = if build_input_parts.is_empty() {
+        String::from("            # No packages specified")
+    } else {
+        build_input_parts.join("\n")
     };
 
     // Format dotenv loading
@@ -222,6 +281,81 @@ fi"#,
 
     let shell_hook = shell_hook_parts.join("\n\n");
 
+    // Build pinned inputs section
+    let pinned_inputs = if resolved_pinned.is_empty() {
+        String::new()
+    } else {
+        resolved_pinned
+            .iter()
+            .map(|entry| {
+                let input_name = pinned_input_name(entry);
+                let commit = entry.resolved_commit.as_ref().unwrap();
+                format!(
+                    "    {}.url = \"github:NixOS/nixpkgs/{}\";",
+                    input_name, commit
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // Build pinned output params
+    let pinned_output_params = if resolved_pinned.is_empty() {
+        String::new()
+    } else {
+        let params = resolved_pinned
+            .iter()
+            .map(|entry| pinned_input_name(entry))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(", {}", params)
+    };
+
+    // Build pinned let bindings
+    let pinned_let_bindings = if resolved_pinned.is_empty() {
+        String::new()
+    } else {
+        resolved_pinned
+            .iter()
+            .map(|entry| {
+                let binding = pinned_binding_name(entry);
+                let input_name = pinned_input_name(entry);
+                format!(
+                    "        {} = import {} {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",
+                    binding, input_name, allow_unfree
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // Build inputs section
+    let mut inputs_lines = vec![
+        format!("    nixpkgs.url = \"{}\";", stable_url),
+        "    nixpkgs-unstable.url = \"github:NixOS/nixpkgs/nixos-unstable\";".to_string(),
+        "    flake-utils.url = \"github:numtide/flake-utils\";".to_string(),
+    ];
+    if !pinned_inputs.is_empty() {
+        inputs_lines.push(pinned_inputs);
+    }
+    let inputs_section = inputs_lines.join("\n");
+
+    // Build let bindings section
+    let mut let_bindings = vec![
+        format!(
+            "        stablePackages = import nixpkgs {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",
+            allow_unfree
+        ),
+        format!(
+            "        unstablePackages = import nixpkgs-unstable {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",
+            allow_unfree
+        ),
+    ];
+    if !pinned_let_bindings.is_empty() {
+        let_bindings.push(pinned_let_bindings);
+    }
+    let let_section = let_bindings.join("\n");
+
     format!(
         r#"# Generated by LazyNix - DO NOT EDIT MANUALLY
 # This file is automatically generated from lazynix.yaml
@@ -231,22 +365,13 @@ fi"#,
   description = "DevShell generated by LazyNix";
 
   inputs = {{
-    nixpkgs.url = "{}";
-    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+{}
   }};
 
-  outputs = {{ self, nixpkgs, nixpkgs-unstable, flake-utils }}:
+  outputs = {{ self, nixpkgs, nixpkgs-unstable, flake-utils{} }}:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        stablePackages = import nixpkgs {{
-          inherit system;
-          config.allowUnfree = {};
-        }};
-        unstablePackages = import nixpkgs-unstable {{
-          inherit system;
-          config.allowUnfree = {};
-        }};
+{}
       in
       {{
         devShells.default = stablePackages.mkShell {{
@@ -262,24 +387,31 @@ fi"#,
     );
 }}
 "#,
-        stable_url, allow_unfree, allow_unfree, build_inputs, shell_hook
+        inputs_section, pinned_output_params, let_section, build_inputs, shell_hook
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, DevShell, Env, EnvVar, Package};
+    use crate::config::{Config, DevShell, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry};
 
     // Test fixtures and helpers
+
+    fn pkg(name: &str) -> PackageEntry {
+        PackageEntry {
+            name: name.to_string(),
+        }
+    }
 
     fn create_default_config() -> Config {
         Config {
             dev_shell: DevShell {
                 allow_unfree: true,
                 package: Package {
-                    stable: vec!["bash".to_string()],
+                    stable: vec![pkg("bash")],
                     unstable: vec![],
+                    pinned: vec![],
                 },
                 shell_hook: vec![],
                 env: None,
@@ -296,10 +428,10 @@ mod tests {
         config
     }
 
-    fn create_config_with_packages(stable: Vec<String>, unstable: Vec<String>) -> Config {
+    fn create_config_with_packages(stable: Vec<&str>, unstable: Vec<&str>) -> Config {
         let mut config = create_default_config();
-        config.dev_shell.package.stable = stable;
-        config.dev_shell.package.unstable = unstable;
+        config.dev_shell.package.stable = stable.into_iter().map(pkg).collect();
+        config.dev_shell.package.unstable = unstable.into_iter().map(pkg).collect();
         config
     }
 
@@ -320,10 +452,8 @@ mod tests {
 
     #[test]
     fn test_render_flake_with_packages() {
-        let mut config = create_config_with_packages(
-            vec!["python312".to_string(), "gcc".to_string()],
-            vec!["rust-analyzer".to_string()],
-        );
+        let mut config =
+            create_config_with_packages(vec!["python312", "gcc"], vec!["rust-analyzer"]);
         config.dev_shell.shell_hook = vec!["echo Hello".to_string()];
 
         let flake = render_flake(&config, None);
@@ -345,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_render_flake_with_override_stable_package() {
-        let config = create_config_with_packages(vec!["python312".to_string()], vec![]);
+        let config = create_config_with_packages(vec!["python312"], vec![]);
 
         let custom_url = "github:NixOS/nixpkgs/nixos-25.06";
         let flake = render_flake(&config, Some(custom_url));
@@ -357,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_render_flake_without_override_uses_default() {
-        let config = create_config_with_packages(vec!["python312".to_string()], vec![]);
+        let config = create_config_with_packages(vec!["python312"], vec![]);
 
         let flake = render_flake(&config, None);
 
@@ -493,7 +623,7 @@ mod tests {
         // Verify envvar export
         assert!(flake.contains("export MY_VAR=hello"));
 
-        // Verify order: dotenv → envvar → user shellHook
+        // Verify order: dotenv -> envvar -> user shellHook
         let dotenv_pos = flake.find("$PWD/config/.env").unwrap();
         let envvar_pos = flake.find("export MY_VAR").unwrap();
         let user_hook_pos = flake.find("echo Hello").unwrap();
@@ -549,12 +679,10 @@ mod tests {
         ];
         let script = render_test_execution(&tests);
 
-        // すべてのコマンドが含まれることを確認
         assert!(script.contains("pytest"));
         assert!(script.contains("cargo test"));
         assert!(script.contains("npm run test"));
 
-        // all-run 方式の確認
         assert!(script.contains("for test_cmd in"));
         assert!(script.contains("bash -c"));
         assert!(script.contains("Test Results:"));
@@ -567,7 +695,6 @@ mod tests {
 
         let flake = render_flake(&config, None);
 
-        // テスト実行ロジックが含まれていることを確認
         assert!(flake.contains("if [ \"$LAZYNIX_TEST_MODE\" = \"1\" ]"));
         assert!(flake.contains("Running tests"));
         assert!(flake.contains("pytest"));
@@ -578,11 +705,10 @@ mod tests {
 
     #[test]
     fn test_render_flake_without_test() {
-        let config = create_default_config(); // test は空
+        let config = create_default_config();
 
         let flake = render_flake(&config, None);
 
-        // テスト実行ロジックが含まれないことを確認
         assert!(!flake.contains("LAZYNIX_TEST_MODE"));
         assert!(!flake.contains("TESTS_FAILED"));
         assert!(flake.contains("Welcome to LazyNix DevShell!"));
@@ -660,7 +786,7 @@ mod tests {
 
         let flake = render_flake(&config, None);
 
-        // Verify order: dotenv → envvar → shell_alias → user hook
+        // Verify order: dotenv -> envvar -> shell_alias -> user hook
         let dotenv_pos = flake.find("Load dotenv").unwrap();
         let envvar_pos = flake.find("export TEST=").unwrap();
         let alias_pos = flake.find("Load shell aliases").unwrap();
@@ -676,5 +802,62 @@ mod tests {
         // Test tilde expansion
         assert_eq!(resolve_path("~/foo"), "$HOME/foo");
         assert_eq!(resolve_path("~/.aliases"), "$HOME/.aliases");
+    }
+
+    #[test]
+    fn test_render_flake_with_pinned_packages() {
+        let mut config = create_default_config();
+        config.dev_shell.package.pinned = vec![PinnedPackageEntry {
+            name: "go".to_string(),
+            version: "1.21.13".to_string(),
+            resolved_commit: Some("e607cb5".to_string()),
+            resolved_attr: Some("go_1_21".to_string()),
+        }];
+
+        let flake = render_flake(&config, None);
+
+        // Verify pinned input
+        assert!(flake.contains("nixpkgs--go--1-21-13.url = \"github:NixOS/nixpkgs/e607cb5\";"));
+        // Verify pinned output param
+        assert!(flake.contains("nixpkgs--go--1-21-13"));
+        // Verify pinned let binding
+        assert!(flake.contains("pinnedPkgs-go-1-21-13 = import nixpkgs--go--1-21-13"));
+        // Verify pinned package in buildInputs
+        assert!(flake.contains("pinnedPkgs-go-1-21-13.go_1_21"));
+    }
+
+    #[test]
+    fn test_render_flake_with_unresolved_pinned_skipped() {
+        let mut config = create_default_config();
+        config.dev_shell.package.pinned = vec![PinnedPackageEntry {
+            name: "go".to_string(),
+            version: "1.21.13".to_string(),
+            resolved_commit: None,
+            resolved_attr: None,
+        }];
+
+        let flake = render_flake(&config, None);
+
+        // Unresolved pinned should be skipped
+        assert!(!flake.contains("nixpkgs--go--1-21-13"));
+        assert!(!flake.contains("pinnedPkgs-go"));
+    }
+
+    #[test]
+    fn test_normalize_version() {
+        assert_eq!(normalize_version("1.21.13"), "1-21-13");
+        assert_eq!(normalize_version("3.12"), "3-12");
+        assert_eq!(normalize_version("1"), "1");
+    }
+
+    #[test]
+    fn test_pinned_input_name() {
+        let entry = PinnedPackageEntry {
+            name: "go".to_string(),
+            version: "1.21.13".to_string(),
+            resolved_commit: None,
+            resolved_attr: None,
+        };
+        assert_eq!(pinned_input_name(&entry), "nixpkgs--go--1-21-13");
     }
 }

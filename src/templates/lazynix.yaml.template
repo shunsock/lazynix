@@ -2,8 +2,9 @@ devShell:
   allowUnfree: true
   package:
     stable:
-      - hello
+      - name: hello
     unstable: []
+    pinned: []
   shellHook:
     - "echo Welcome to LazyNix DevShell!"
 
