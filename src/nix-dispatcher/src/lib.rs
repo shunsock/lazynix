@@ -10,4 +10,4 @@ pub use commands::{
     run_flake_update, run_nix_develop, run_nix_develop_command, run_nix_test, run_task_in_nix_env,
 };
 pub use error::{NixDispatcherError, Result};
-pub use version_resolver::{resolve_version, search_versions, ResolvedVersion};
+pub use version_resolver::{ResolvedVersion, resolve_version, search_versions};

@@ -566,10 +566,7 @@ devShell:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("empty version"));
+        assert!(result.unwrap_err().to_string().contains("empty version"));
     }
 
     #[test]

@@ -290,7 +290,10 @@ fi"#,
             .map(|entry| {
                 let input_name = pinned_input_name(entry);
                 let commit = entry.resolved_commit.as_ref().unwrap();
-                format!("    {}.url = \"github:NixOS/nixpkgs/{}\";", input_name, commit)
+                format!(
+                    "    {}.url = \"github:NixOS/nixpkgs/{}\";",
+                    input_name, commit
+                )
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -384,11 +387,7 @@ fi"#,
     );
 }}
 "#,
-        inputs_section,
-        pinned_output_params,
-        let_section,
-        build_inputs,
-        shell_hook
+        inputs_section, pinned_output_params, let_section, build_inputs, shell_hook
     )
 }
 
@@ -453,7 +452,8 @@ mod tests {
 
     #[test]
     fn test_render_flake_with_packages() {
-        let mut config = create_config_with_packages(vec!["python312", "gcc"], vec!["rust-analyzer"]);
+        let mut config =
+            create_config_with_packages(vec!["python312", "gcc"], vec!["rust-analyzer"]);
         config.dev_shell.shell_hook = vec!["echo Hello".to_string()];
 
         let flake = render_flake(&config, None);

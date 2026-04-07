@@ -48,10 +48,7 @@ pub fn resolve_version(package_name: &str, version: &str) -> Result<ResolvedVers
         .arg(&spec)
         .output()
         .map_err(|e| {
-            NixDispatcherError::CommandExecution(format!(
-                "Failed to execute nix-versions: {}",
-                e
-            ))
+            NixDispatcherError::CommandExecution(format!("Failed to execute nix-versions: {}", e))
         })?;
 
     if !output.status.success() {
@@ -63,13 +60,9 @@ pub fn resolve_version(package_name: &str, version: &str) -> Result<ResolvedVers
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let results: Vec<NixVersionResult> =
-        serde_json::from_str(&stdout).map_err(|e| {
-            NixDispatcherError::CommandExecution(format!(
-                "Failed to parse nix-versions output: {}",
-                e
-            ))
-        })?;
+    let results: Vec<NixVersionResult> = serde_json::from_str(&stdout).map_err(|e| {
+        NixDispatcherError::CommandExecution(format!("Failed to parse nix-versions output: {}", e))
+    })?;
 
     let result = results.into_iter().next().ok_or_else(|| {
         NixDispatcherError::CommandExecution(format!(
@@ -97,9 +90,7 @@ pub fn search_versions(
     };
 
     let mut cmd = Command::new("nix");
-    cmd.arg("run")
-        .arg("github:vic/nix-versions")
-        .arg("--");
+    cmd.arg("run").arg("github:vic/nix-versions").arg("--");
 
     if json {
         cmd.arg("--json");

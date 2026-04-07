@@ -357,12 +357,7 @@ fn resolve_pinned_packages(
     Ok(resolved_any)
 }
 
-fn cmd_search(
-    package_name: &str,
-    version: Option<&str>,
-    json: bool,
-    one: bool,
-) -> Result<()> {
+fn cmd_search(package_name: &str, version: Option<&str>, json: bool, one: bool) -> Result<()> {
     let output = search_versions(package_name, version, json, one)?;
     print!("{}", output);
     Ok(())
