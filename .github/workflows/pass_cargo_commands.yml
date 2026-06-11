@@ -126,6 +126,12 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      # Tests spawn `nix eval` in parallel. Initialize the nix tarball
+      # cache serially first, otherwise concurrent evaluations race on
+      # ~/.cache/nix/tarball-cache/config.lock and fail spuriously.
+      - name: Warm up nix flake registry cache
+        run: nix eval nixpkgs#hello
+
       - name: Run cargo test on cli
         if: needs.detect-changes.outputs.cli == 'true'
         run: cargo test -p lnix
