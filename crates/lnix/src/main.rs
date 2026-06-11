@@ -9,7 +9,8 @@ use clap::Parser;
 use cli_parser::{Cli, Commands};
 use error::Result;
 use lazynix_settings_yaml::Settings;
-use lnix_flake_generator::{LazyNixParser, render_flake, validate_config};
+use lnix_core::{PackageName, TaskName, validate_config};
+use lnix_flake_generator::{LazyNixParser, render_flake};
 use lnix_nix_dispatcher::{
     resolve_version, run_flake_update, run_nix_develop, run_nix_develop_command, run_nix_test,
     run_task_in_nix_env, search_versions,
@@ -29,11 +30,9 @@ fn read_local_settings(config_dir: &Path) -> Result<Option<Settings>> {
     }
 
     let settings_str = fs::read_to_string(settings_path)?;
-    let settings: Settings = serde_yaml::from_str(&settings_str)?;
 
-    if let Some(url) = &settings.override_stable_package {
-        lazynix_settings_yaml::validate_registry_url(url)?;
-    }
+    // RegistryUrl validates the override URL during deserialization
+    let settings: Settings = serde_yaml::from_str(&settings_str)?;
 
     Ok(Some(settings))
 }
@@ -142,7 +141,8 @@ fn cmd_develop(config_dir: &Path, update_lock: bool) -> Result<()> {
     let settings = read_local_settings(config_dir)?;
     let override_url = settings
         .as_ref()
-        .and_then(|s| s.override_stable_package.as_deref());
+        .and_then(|s| s.override_stable_package.as_ref())
+        .map(|url| url.as_str());
 
     // Step 2: Read and parse config using LazyNixParser
     println!("Reading configuration from {}...", config_dir.display());
@@ -184,7 +184,8 @@ fn cmd_test(config_dir: &Path, update_lock: bool) -> Result<()> {
     let settings = read_local_settings(config_dir)?;
     let override_url = settings
         .as_ref()
-        .and_then(|s| s.override_stable_package.as_deref());
+        .and_then(|s| s.override_stable_package.as_ref())
+        .map(|url| url.as_str());
 
     // Step 2: Read and parse config using LazyNixParser
     println!("Reading configuration from {}...", config_dir.display());
@@ -254,7 +255,8 @@ fn cmd_run(
         let settings = read_local_settings(config_dir)?;
         let override_url = settings
             .as_ref()
-            .and_then(|s| s.override_stable_package.as_deref());
+            .and_then(|s| s.override_stable_package.as_ref())
+            .map(|url| url.as_str());
 
         // Step 2: Read and parse config using LazyNixParser
         println!("Reading configuration from {}...", config_dir.display());
@@ -295,6 +297,9 @@ fn cmd_run(
 }
 
 fn cmd_task(config_dir: &Path, task_name: String, args: Vec<String>) -> Result<i32> {
+    // Validate the requested task name before touching any config
+    let task_name: TaskName = task_name.parse()?;
+
     // Step 1: Read and parse config using LazyNixParser
     println!("Reading configuration from {}...", config_dir.display());
     let parser = LazyNixParser::new(config_dir.to_path_buf());
@@ -329,10 +334,7 @@ fn cmd_task(config_dir: &Path, task_name: String, args: Vec<String>) -> Result<i
     Ok(exit_code)
 }
 
-fn resolve_pinned_packages(
-    parser: &LazyNixParser,
-    config: &mut lnix_flake_generator::Config,
-) -> Result<bool> {
+fn resolve_pinned_packages(parser: &LazyNixParser, config: &mut lnix_core::Config) -> Result<bool> {
     let mut resolved_any = false;
     for entry in &mut config.dev_shell.package.pinned {
         if entry.resolved_commit.is_some() && entry.resolved_attr.is_some() {
@@ -342,7 +344,7 @@ fn resolve_pinned_packages(
             "Resolving version for {} @ {}...",
             entry.name, entry.version
         );
-        let resolved = resolve_version(&entry.name, &entry.version)?;
+        let resolved = resolve_version(entry.name.as_str(), entry.version.as_str())?;
         entry.resolved_commit = Some(resolved.commit);
         entry.resolved_attr = Some(resolved.attr);
         resolved_any = true;
@@ -358,7 +360,10 @@ fn resolve_pinned_packages(
 }
 
 fn cmd_search(package_name: &str, version: Option<&str>, json: bool, one: bool) -> Result<()> {
-    let output = search_versions(package_name, version, json, one)?;
+    // Validate the name before forwarding it to nix-versions
+    let package_name: PackageName = package_name.parse()?;
+
+    let output = search_versions(package_name.as_str(), version, json, one)?;
     print!("{}", output);
     Ok(())
 }

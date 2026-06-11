@@ -1,4 +1,4 @@
-use crate::config::{Config, EnvVar, PinnedPackageEntry};
+use lnix_core::{Config, EnvVar, PinnedPackageEntry};
 
 fn is_absolute_path(path: &str) -> bool {
     path.starts_with('/')
@@ -122,7 +122,7 @@ fn pinned_input_name(entry: &PinnedPackageEntry) -> String {
     format!(
         "nixpkgs--{}--{}",
         entry.name,
-        normalize_version(&entry.version)
+        normalize_version(entry.version.as_str())
     )
 }
 
@@ -130,7 +130,7 @@ fn pinned_binding_name(entry: &PinnedPackageEntry) -> String {
     format!(
         "pinnedPkgs-{}-{}",
         entry.name,
-        normalize_version(&entry.version)
+        normalize_version(entry.version.as_str())
     )
 }
 
@@ -394,13 +394,13 @@ fi"#,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, DevShell, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry};
+    use lnix_core::{Config, DevShell, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry};
 
     // Test fixtures and helpers
 
     fn pkg(name: &str) -> PackageEntry {
         PackageEntry {
-            name: name.to_string(),
+            name: name.parse().unwrap(),
         }
     }
 
@@ -553,11 +553,11 @@ mod tests {
             dotenv: vec![],
             envvar: vec![
                 EnvVar {
-                    name: "MY_VAR".to_string(),
+                    name: "MY_VAR".parse().unwrap(),
                     value: "hello".to_string(),
                 },
                 EnvVar {
-                    name: "PYTHONPATH".to_string(),
+                    name: "PYTHONPATH".parse().unwrap(),
                     value: "/path/to/project".to_string(),
                 },
             ],
@@ -607,7 +607,7 @@ mod tests {
         let env = Env {
             dotenv: vec!["./config/.env".to_string(), "/tmp/.env.global".to_string()],
             envvar: vec![EnvVar {
-                name: "MY_VAR".to_string(),
+                name: "MY_VAR".parse().unwrap(),
                 value: "hello".to_string(),
             }],
         };
@@ -777,7 +777,7 @@ mod tests {
         config.dev_shell.env = Some(Env {
             dotenv: vec![".env".to_string()],
             envvar: vec![EnvVar {
-                name: "TEST".to_string(),
+                name: "TEST".parse().unwrap(),
                 value: "value".to_string(),
             }],
         });
@@ -808,8 +808,8 @@ mod tests {
     fn test_render_flake_with_pinned_packages() {
         let mut config = create_default_config();
         config.dev_shell.package.pinned = vec![PinnedPackageEntry {
-            name: "go".to_string(),
-            version: "1.21.13".to_string(),
+            name: "go".parse().unwrap(),
+            version: "1.21.13".parse().unwrap(),
             resolved_commit: Some("e607cb5".to_string()),
             resolved_attr: Some("go_1_21".to_string()),
         }];
@@ -830,8 +830,8 @@ mod tests {
     fn test_render_flake_with_unresolved_pinned_skipped() {
         let mut config = create_default_config();
         config.dev_shell.package.pinned = vec![PinnedPackageEntry {
-            name: "go".to_string(),
-            version: "1.21.13".to_string(),
+            name: "go".parse().unwrap(),
+            version: "1.21.13".parse().unwrap(),
             resolved_commit: None,
             resolved_attr: None,
         }];
@@ -853,8 +853,8 @@ mod tests {
     #[test]
     fn test_pinned_input_name() {
         let entry = PinnedPackageEntry {
-            name: "go".to_string(),
-            version: "1.21.13".to_string(),
+            name: "go".parse().unwrap(),
+            version: "1.21.13".parse().unwrap(),
             resolved_commit: None,
             resolved_attr: None,
         };

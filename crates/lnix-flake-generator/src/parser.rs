@@ -1,4 +1,4 @@
-use crate::config::Config;
+use lnix_core::Config;
 
 use std::fs;
 use std::path::PathBuf;
@@ -123,7 +123,10 @@ devShell:
             let parser = LazyNixParser::new(PathBuf::from("."));
             let config = parser.read_config().unwrap();
 
-            assert_eq!(config.dev_shell.package.stable[0].name, "python312");
+            assert_eq!(
+                config.dev_shell.package.stable[0].name.as_str(),
+                "python312"
+            );
         });
     }
 
@@ -148,7 +151,7 @@ devShell:
             let config = parser.read_config().unwrap();
 
             assert!(config.dev_shell.allow_unfree);
-            assert_eq!(config.dev_shell.package.stable[0].name, "rust");
+            assert_eq!(config.dev_shell.package.stable[0].name.as_str(), "rust");
         });
     }
 
@@ -185,7 +188,7 @@ devShell:
             // Public function should still work
             let config = read_config().unwrap();
 
-            assert_eq!(config.dev_shell.package.stable[0].name, "gcc");
+            assert_eq!(config.dev_shell.package.stable[0].name.as_str(), "gcc");
         });
     }
 

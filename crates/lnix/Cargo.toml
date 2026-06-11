@@ -10,6 +10,7 @@ name = "lnix"
 path = "src/main.rs"
 
 [dependencies]
+lnix-core = { workspace = true }
 lnix-flake-generator = { workspace = true }
 lnix-linter = { workspace = true }
 lnix-nix-dispatcher = { workspace = true }
