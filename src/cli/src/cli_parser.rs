@@ -85,4 +85,22 @@ pub enum Commands {
         #[arg(long)]
         arch: Option<String>,
     },
+
+    /// Search for available package versions via nix-versions
+    Search {
+        /// Package name to search for
+        package_name: String,
+
+        /// Version constraint (semver syntax, e.g., ">=1.20,<1.22")
+        #[arg(short, long)]
+        version: Option<String>,
+
+        /// Output results as JSON
+        #[arg(short, long)]
+        json: bool,
+
+        /// Show only the latest matching version
+        #[arg(short = '1', long)]
+        one: bool,
+    },
 }

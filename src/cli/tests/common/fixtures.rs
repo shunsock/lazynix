@@ -5,8 +5,9 @@ pub fn minimal_config() -> String {
   allowUnfree: true
   package:
     stable:
-      - bash
+      - name: bash
     unstable: []
+    pinned: []
   shellHook: []
 "#
     .to_string()
@@ -22,6 +23,7 @@ pub fn config_with_packages(stable: &[&str], unstable: &[&str]) -> String {
 {}
     unstable:
 {}
+    pinned: []
   shellHook: []
 "#,
         if stable.is_empty() {
@@ -29,7 +31,7 @@ pub fn config_with_packages(stable: &[&str], unstable: &[&str]) -> String {
         } else {
             stable
                 .iter()
-                .map(|p| format!("      - {}", p))
+                .map(|p| format!("      - name: {}", p))
                 .collect::<Vec<_>>()
                 .join("\n")
         },
@@ -38,7 +40,7 @@ pub fn config_with_packages(stable: &[&str], unstable: &[&str]) -> String {
         } else {
             unstable
                 .iter()
-                .map(|p| format!("      - {}", p))
+                .map(|p| format!("      - name: {}", p))
                 .collect::<Vec<_>>()
                 .join("\n")
         }
@@ -53,7 +55,8 @@ pub fn config_with_test_commands(tests: &[&str]) -> String {
   allowUnfree: true
   package:
     stable:
-      - bash
+      - name: bash
+    pinned: []
   test:
 {}
 "#,
@@ -85,7 +88,8 @@ pub fn config_with_tasks(tasks: &[(&str, Vec<&str>, Option<&str>)]) -> String {
   allowUnfree: true
   package:
     stable:
-      - bash
+      - name: bash
+    pinned: []
   task:
 {}
 "#,
@@ -100,7 +104,7 @@ pub fn invalid_yaml_config() -> String {
   allowUnfree: true
   package:
     stable:
-      - hello
+      - name: hello
     - this is invalid yaml syntax
 "#
     .to_string()
