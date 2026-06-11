@@ -448,10 +448,12 @@ devShell:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid task name"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid task name")
+        );
     }
 
     #[test]
@@ -470,10 +472,12 @@ devShell:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("empty commands list"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("empty commands list")
+        );
     }
 
     #[test]
@@ -584,9 +588,11 @@ devShell:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let result = validate_config(&config);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid pinned package name"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid pinned package name")
+        );
     }
 }

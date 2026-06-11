@@ -4,15 +4,15 @@ LazyNix is structured as a Rust workspace with four crates. Each crate has a sin
 
 ## Architecture Overview
 
-The workspace is organized under `src/`:
+The workspace is organized under `crates/`:
 
 ```
-src/
-  cli/              # Entry point and command routing
-  flake-generator/  # YAML parsing and flake.nix generation
-  linter/           # Package validation via nix eval
-  nix-dispatcher/   # Nix command execution
-  templates/        # Template files for lnix init
+crates/
+  lnix/                  # Entry point and command routing
+    templates/           # Template files for lnix init
+  lnix-flake-generator/  # YAML parsing and flake.nix generation
+  lnix-linter/           # Package validation via nix eval
+  lnix-nix-dispatcher/   # Nix command execution
 ```
 
 The dependency graph flows strictly top-down:

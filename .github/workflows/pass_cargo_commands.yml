@@ -5,14 +5,10 @@ on:
     branches:
       - main
     paths:
-      - src/cli/src/**/*.rs
-      - src/linter/src/**/*.rs
-      - src/flake-generator/src/**/*.rs
-      - src/nix-dispatcher/src/**/*.rs
-      - src/cli/Cargo.toml
-      - src/linter/Cargo.toml
-      - src/flake-generator/Cargo.toml
-      - src/nix-dispatcher/Cargo.toml
+      - crates/*/src/**/*.rs
+      - crates/*/tests/**/*.rs
+      - crates/*/Cargo.toml
+      - crates/lnix/templates/**
       - Cargo.toml
       - Cargo.lock
 
@@ -36,20 +32,24 @@ jobs:
         with:
           filters: |
             cli:
-              - src/cli/src/**/*.rs
-              - src/cli/Cargo.toml
+              - crates/lnix/src/**/*.rs
+              - crates/lnix/tests/**/*.rs
+              - crates/lnix/templates/**
+              - crates/lnix/Cargo.toml
             linter:
-              - src/linter/src/**/*.rs
-              - src/linter/Cargo.toml
+              - crates/lnix-linter/src/**/*.rs
+              - crates/lnix-linter/tests/**/*.rs
+              - crates/lnix-linter/Cargo.toml
             flake-generator:
-              - src/flake-generator/src/**/*.rs
-              - src/flake-generator/Cargo.toml
+              - crates/lnix-flake-generator/src/**/*.rs
+              - crates/lnix-flake-generator/Cargo.toml
             nix-dispatcher:
-              - src/nix-dispatcher/src/**/*.rs
-              - src/nix-dispatcher/Cargo.toml
+              - crates/lnix-nix-dispatcher/src/**/*.rs
+              - crates/lnix-nix-dispatcher/Cargo.toml
             any-crate:
-              - src/*/src/**/*.rs
-              - src/*/Cargo.toml
+              - crates/*/src/**/*.rs
+              - crates/*/tests/**/*.rs
+              - crates/*/Cargo.toml
               - Cargo.toml
               - Cargo.lock
 

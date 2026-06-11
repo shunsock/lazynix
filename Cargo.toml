@@ -1,3 +1,33 @@
 [workspace]
-members = ["src/cli", "src/linter", "src/flake-generator", "src/nix-dispatcher"]
+members = [
+    "crates/lnix",
+    "crates/lnix-flake-generator",
+    "crates/lnix-linter",
+    "crates/lnix-nix-dispatcher",
+]
 resolver = "2"
+
+[workspace.package]
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/shunsock/lazynix"
+
+[workspace.dependencies]
+# Internal crates
+lnix-flake-generator = { path = "crates/lnix-flake-generator" }
+lnix-linter = { path = "crates/lnix-linter" }
+lnix-nix-dispatcher = { path = "crates/lnix-nix-dispatcher" }
+
+# External crates
+anyhow = "1.0"
+assert_cmd = "2.0"
+clap = { version = "4.5", features = ["derive", "cargo", "env"] }
+predicates = "3.1"
+rayon = "1.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+serial_test = "3"
+tempfile = "3.15"
+thiserror = "1.0"

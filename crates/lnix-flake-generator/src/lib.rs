@@ -8,8 +8,8 @@ mod parser;
 
 // Public API
 pub use config::{
-    validate_config, Config, DevShell, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry,
-    TaskDef,
+    Config, DevShell, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry, TaskDef,
+    validate_config,
 };
 pub use error::{FlakeGeneratorError, Result};
 pub use generator::render_flake;

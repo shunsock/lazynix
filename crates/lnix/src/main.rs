@@ -17,8 +17,8 @@ use lnix_nix_dispatcher::{
 use std::fs;
 use std::path::Path;
 
-const YAML_TEMPLATE: &str = include_str!("../../templates/lazynix.yaml.template");
-const FLAKE_TEMPLATE: &str = include_str!("../../templates/flake.nix.init.template");
+const YAML_TEMPLATE: &str = include_str!("../templates/lazynix.yaml.template");
+const FLAKE_TEMPLATE: &str = include_str!("../templates/flake.nix.init.template");
 
 /// Read lazynix-settings.yaml from config directory
 fn read_local_settings(config_dir: &Path) -> Result<Option<Settings>> {

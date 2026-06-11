@@ -30,3 +30,7 @@ examples/python/flake.lock
 
 # LazyNix settings file (user-specific configuration)
 lazynix-settings.yaml
+
+# Test artifacts: lnix tests may generate flake.nix inside the crate directory
+crates/lnix/flake.nix
+crates/lnix/lazynix.yaml
