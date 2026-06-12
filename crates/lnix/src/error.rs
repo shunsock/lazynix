@@ -17,25 +17,26 @@ pub enum LazyNixError {
     #[error("Config validation failed: {0}")]
     Validation(String),
 
-    #[allow(dead_code)]
-    #[error("Settings validation failed: {0}")]
-    SettingsValidation(String),
-
     #[error("Nix command failed: {0}")]
     NixCommand(String),
 
-    #[allow(dead_code)]
     #[error("Dotenv file not found: {0}")]
     DotenvFileNotFound(String),
-
-    #[allow(dead_code)]
-    #[error(
-        "Invalid environment variable name: {0}. Variable names must match [a-zA-Z_][a-zA-Z0-9_]*"
-    )]
-    InvalidEnvVarName(String),
 }
 
 pub type Result<T> = std::result::Result<T, LazyNixError>;
+
+impl From<lnix_core::ValidationError> for LazyNixError {
+    fn from(err: lnix_core::ValidationError) -> Self {
+        LazyNixError::Validation(err.to_string())
+    }
+}
+
+impl From<lnix_core::ParseError> for LazyNixError {
+    fn from(err: lnix_core::ParseError) -> Self {
+        LazyNixError::Validation(err.to_string())
+    }
+}
 
 impl From<lnix_flake_generator::FlakeGeneratorError> for LazyNixError {
     fn from(err: lnix_flake_generator::FlakeGeneratorError) -> Self {

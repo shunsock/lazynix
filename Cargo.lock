@@ -355,6 +355,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
+ "lnix-core",
  "lnix-flake-generator",
  "lnix-linter",
  "lnix-nix-dispatcher",
@@ -367,10 +368,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnix-core"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
 name = "lnix-flake-generator"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "lnix-core",
  "serde",
  "serde_yaml",
  "serial_test",
@@ -383,6 +394,7 @@ name = "lnix-linter"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "lnix-core",
  "rayon",
  "thiserror",
 ]

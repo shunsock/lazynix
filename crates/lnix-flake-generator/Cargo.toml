@@ -7,6 +7,8 @@ license = { workspace = true }
 repository = { workspace = true }
 
 [dependencies]
+lnix-core = { workspace = true }
+
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }

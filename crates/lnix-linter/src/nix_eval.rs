@@ -1,6 +1,7 @@
 //! Nix eval executor for package validation
 
-use crate::error::{LinterError, Result};
+use crate::error::Result;
+use lnix_core::PackageName;
 use std::process::Command;
 
 /// Result of executing a `nix eval` command
@@ -16,52 +17,31 @@ pub struct NixEvalResult {
     pub exit_code: i32,
 }
 
-/// Validates a package name to prevent shell injection
-///
-/// Package names should only contain alphanumeric characters, hyphens, and underscores
-fn validate_package_name(package_name: &str) -> Result<()> {
-    if package_name.is_empty() {
-        return Err(LinterError::InvalidPackageName(
-            "Package name cannot be empty".to_string(),
-        ));
-    }
-
-    // Allow alphanumeric, hyphens, underscores, and dots
-    if !package_name
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
-    {
-        return Err(LinterError::InvalidPackageName(format!(
-            "Package name '{}' contains invalid characters",
-            package_name
-        )));
-    }
-
-    Ok(())
-}
-
 /// Executes `nix eval nixpkgs#<package>` to check if a package exists
 ///
+/// Shell-injection safety is guaranteed by [`PackageName`], which only
+/// permits alphanumerics, hyphens, underscores, and dots.
+///
 /// # Arguments
-/// * `package_name` - Name of the package to evaluate
+/// * `package` - Package to evaluate
 ///
 /// # Returns
 /// * `Ok(NixEvalResult)` - Command execution result
-/// * `Err(LinterError)` - If command execution fails or package name is invalid
+/// * `Err(LinterError)` - If command execution fails
 ///
 /// # Example
 /// ```no_run
+/// use lnix_core::PackageName;
 /// use lnix_linter::nix_eval::eval_package;
 ///
-/// let result = eval_package("vim").unwrap();
+/// let package: PackageName = "vim".parse().unwrap();
+/// let result = eval_package(&package).unwrap();
 /// assert!(result.success);
 /// ```
-pub fn eval_package(package_name: &str) -> Result<NixEvalResult> {
-    validate_package_name(package_name)?;
-
+pub fn eval_package(package: &PackageName) -> Result<NixEvalResult> {
     let output = Command::new("nix")
         .arg("eval")
-        .arg(format!("nixpkgs#{}", package_name))
+        .arg(format!("nixpkgs#{}", package))
         .output()?;
 
     Ok(NixEvalResult {
@@ -75,28 +55,28 @@ pub fn eval_package(package_name: &str) -> Result<NixEvalResult> {
 /// Executes `nix eval --system <arch> nixpkgs#<package>` to check architecture compatibility
 ///
 /// # Arguments
-/// * `package_name` - Name of the package to evaluate
+/// * `package` - Package to evaluate
 /// * `arch` - Target architecture (e.g., "aarch64-darwin", "x86_64-linux")
 ///
 /// # Returns
 /// * `Ok(NixEvalResult)` - Command execution result
-/// * `Err(LinterError)` - If command execution fails or package name is invalid
+/// * `Err(LinterError)` - If command execution fails
 ///
 /// # Example
 /// ```no_run
+/// use lnix_core::PackageName;
 /// use lnix_linter::nix_eval::eval_package_for_arch;
 ///
-/// let result = eval_package_for_arch("vim", "aarch64-darwin").unwrap();
+/// let package: PackageName = "vim".parse().unwrap();
+/// let result = eval_package_for_arch(&package, "aarch64-darwin").unwrap();
 /// assert!(result.success);
 /// ```
-pub fn eval_package_for_arch(package_name: &str, arch: &str) -> Result<NixEvalResult> {
-    validate_package_name(package_name)?;
-
+pub fn eval_package_for_arch(package: &PackageName, arch: &str) -> Result<NixEvalResult> {
     let output = Command::new("nix")
         .arg("eval")
         .arg("--system")
         .arg(arch)
-        .arg(format!("nixpkgs#{}", package_name))
+        .arg(format!("nixpkgs#{}", package))
         .output()?;
 
     Ok(NixEvalResult {
@@ -112,60 +92,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_validate_package_name_valid() {
-        assert!(validate_package_name("vim").is_ok());
-        assert!(validate_package_name("python3").is_ok());
-        assert!(validate_package_name("gcc-13").is_ok());
-        assert!(validate_package_name("rust_1-70").is_ok());
-        assert!(validate_package_name("hello.world").is_ok());
-    }
+    fn eval_succeeds_for_existing_package() {
+        // Arrange
+        let package: PackageName = "hello".parse().unwrap();
 
-    #[test]
-    fn test_validate_package_name_invalid() {
-        assert!(validate_package_name("").is_err());
-        assert!(validate_package_name("vim;ls").is_err());
-        assert!(validate_package_name("vim&&echo").is_err());
-        assert!(validate_package_name("vim|cat").is_err());
-        assert!(validate_package_name("vim$PATH").is_err());
-        assert!(validate_package_name("vim `whoami`").is_err());
-    }
+        // Act
+        let result = eval_package(&package).unwrap();
 
-    #[test]
-    fn test_eval_valid_package() {
-        let result = eval_package("hello");
-        assert!(result.is_ok());
-        let result = result.unwrap();
-        // hello package should exist in nixpkgs
+        // Assert
         assert!(result.success, "stderr: {}", result.stderr);
     }
 
     #[test]
-    fn test_eval_invalid_package() {
-        let result = eval_package("nonexistent-pkg-xyz-12345");
-        assert!(result.is_ok());
-        let result = result.unwrap();
-        // Package should not exist
+    fn eval_fails_for_nonexistent_package() {
+        // Arrange
+        let package: PackageName = "nonexistent-pkg-xyz-12345".parse().unwrap();
+
+        // Act
+        let result = eval_package(&package).unwrap();
+
+        // Assert
         assert!(!result.success);
         assert!(result.stderr.contains("does not provide"));
     }
 
     #[test]
-    fn test_eval_package_for_arch_valid() {
-        // Test with current system architecture
-        let result = eval_package_for_arch("hello", "x86_64-linux");
-        assert!(result.is_ok());
-        let result = result.unwrap();
-        // hello should be available on x86_64-linux
-        assert!(result.success || !result.stderr.is_empty());
-    }
+    fn eval_for_arch_completes() {
+        // Arrange
+        let package: PackageName = "hello".parse().unwrap();
 
-    #[test]
-    fn test_eval_invalid_package_name() {
-        let result = eval_package("vim;malicious");
-        assert!(result.is_err());
-        match result {
-            Err(LinterError::InvalidPackageName(_)) => {}
-            _ => panic!("Expected InvalidPackageName error"),
-        }
+        // Act
+        let result = eval_package_for_arch(&package, "x86_64-linux").unwrap();
+
+        // Assert: hello should be available on x86_64-linux
+        assert!(result.success || !result.stderr.is_empty());
     }
 }

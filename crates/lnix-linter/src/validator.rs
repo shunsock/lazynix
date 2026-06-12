@@ -3,6 +3,7 @@
 use crate::error::ValidationError;
 use crate::error_classifier::classify_nix_eval_error;
 use crate::nix_eval::{eval_package, eval_package_for_arch};
+use lnix_core::PackageName;
 use rayon::prelude::*;
 
 /// Result of validating multiple packages
@@ -17,7 +18,7 @@ pub struct ValidationResult {
 /// Validates multiple packages in parallel
 ///
 /// # Arguments
-/// * `packages` - List of package names to validate
+/// * `packages` - Packages to validate
 /// * `target_arch` - Optional target architecture (e.g., "aarch64-darwin", "x86_64-linux")
 ///   If None, validates against current system architecture
 ///
@@ -26,13 +27,15 @@ pub struct ValidationResult {
 ///
 /// # Example
 /// ```no_run
+/// use lnix_core::PackageName;
 /// use lnix_linter::validator::validate_packages;
 ///
-/// let packages = vec!["vim".to_string(), "git".to_string()];
+/// let packages: Vec<PackageName> =
+///     vec!["vim".parse().unwrap(), "git".parse().unwrap()];
 /// let result = validate_packages(&packages, None);
 /// println!("Valid: {}, Errors: {}", result.valid_packages.len(), result.errors.len());
 /// ```
-pub fn validate_packages(packages: &[String], target_arch: Option<&str>) -> ValidationResult {
+pub fn validate_packages(packages: &[PackageName], target_arch: Option<&str>) -> ValidationResult {
     let results: Vec<_> = packages
         .par_iter()
         .map(|package| validate_single_package(package, target_arch))
@@ -58,7 +61,7 @@ pub fn validate_packages(packages: &[String], target_arch: Option<&str>) -> Vali
 ///
 /// Returns Ok(()) if package is valid, Err(ValidationError) otherwise
 fn validate_single_package(
-    package: &str,
+    package: &PackageName,
     target_arch: Option<&str>,
 ) -> (String, Result<(), ValidationError>) {
     let eval_result = if let Some(arch) = target_arch {
@@ -73,7 +76,7 @@ fn validate_single_package(
                 Ok(())
             } else {
                 // Classify the error based on stderr
-                Err(classify_nix_eval_error(package, &result.stderr))
+                Err(classify_nix_eval_error(package.as_str(), &result.stderr))
             }
         }
         Err(linter_error) => {
@@ -92,48 +95,71 @@ fn validate_single_package(
 mod tests {
     use super::*;
 
+    fn packages(names: &[&str]) -> Vec<PackageName> {
+        names.iter().map(|name| name.parse().unwrap()).collect()
+    }
+
     #[test]
-    fn test_validate_all_valid_packages() {
-        let packages = vec!["hello".to_string(), "vim".to_string()];
-        let result = validate_packages(&packages, None);
+    fn validates_existing_packages() {
+        // Arrange
+        let targets = packages(&["hello", "vim"]);
+
+        // Act
+        let result = validate_packages(&targets, None);
+
+        // Assert
         assert_eq!(result.valid_packages.len(), 2);
         assert_eq!(result.errors.len(), 0);
     }
 
     #[test]
-    fn test_validate_with_invalid_packages() {
-        let packages = vec!["hello".to_string(), "nonexistent-xyz-12345".to_string()];
-        let result = validate_packages(&packages, None);
-        assert_eq!(result.valid_packages.len(), 1);
+    fn separates_valid_and_invalid_packages() {
+        // Arrange
+        let targets = packages(&["hello", "nonexistent-xyz-12345"]);
+
+        // Act
+        let result = validate_packages(&targets, None);
+
+        // Assert
+        assert_eq!(result.valid_packages, vec!["hello".to_string()]);
         assert_eq!(result.errors.len(), 1);
-        assert!(result.valid_packages.contains(&"hello".to_string()));
     }
 
     #[test]
-    fn test_validate_all_invalid_packages() {
-        let packages = vec![
-            "nonexistent-abc-111".to_string(),
-            "nonexistent-xyz-222".to_string(),
-        ];
-        let result = validate_packages(&packages, None);
+    fn reports_all_invalid_packages() {
+        // Arrange
+        let targets = packages(&["nonexistent-abc-111", "nonexistent-xyz-222"]);
+
+        // Act
+        let result = validate_packages(&targets, None);
+
+        // Assert
         assert_eq!(result.valid_packages.len(), 0);
         assert_eq!(result.errors.len(), 2);
     }
 
     #[test]
-    fn test_validate_empty_package_list() {
-        let packages: Vec<String> = vec![];
-        let result = validate_packages(&packages, None);
+    fn handles_empty_package_list() {
+        // Arrange
+        let targets: Vec<PackageName> = vec![];
+
+        // Act
+        let result = validate_packages(&targets, None);
+
+        // Assert
         assert_eq!(result.valid_packages.len(), 0);
         assert_eq!(result.errors.len(), 0);
     }
 
     #[test]
-    fn test_validate_with_architecture() {
-        let packages = vec!["hello".to_string()];
-        let result = validate_packages(&packages, Some("x86_64-linux"));
-        // hello should be available on x86_64-linux
-        // Result may vary by system, but should complete without errors
-        assert!(result.valid_packages.len() + result.errors.len() == 1);
+    fn validates_against_explicit_architecture() {
+        // Arrange
+        let targets = packages(&["hello"]);
+
+        // Act
+        let result = validate_packages(&targets, Some("x86_64-linux"));
+
+        // Assert: result may vary by system, but exactly one outcome is recorded
+        assert_eq!(result.valid_packages.len() + result.errors.len(), 1);
     }
 }

@@ -1,14 +1,14 @@
 [package]
-name = "lnix-linter"
-description = "Package validation linter for LazyNix"
+name = "lnix-core"
+description = "Core domain types and value objects for LazyNix"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
 repository = { workspace = true }
 
 [dependencies]
-lnix-core = { workspace = true }
-
-anyhow = { workspace = true }
-rayon = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

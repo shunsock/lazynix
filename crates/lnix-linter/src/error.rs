@@ -4,15 +4,14 @@ use std::io;
 use thiserror::Error;
 
 /// Errors that can occur during linting operations
+///
+/// Note: invalid package names are no longer an error case here.
+/// [`lnix_core::PackageName`] makes them unrepresentable.
 #[derive(Error, Debug)]
 pub enum LinterError {
     /// Failed to execute nix command
     #[error("Failed to execute nix command: {0}")]
     CommandExecutionFailed(#[from] io::Error),
-
-    /// Invalid package name (potential shell injection)
-    #[error("Invalid package name: {0}")]
-    InvalidPackageName(String),
 
     /// Command timed out
     #[error("Nix eval command timed out after {0} seconds")]

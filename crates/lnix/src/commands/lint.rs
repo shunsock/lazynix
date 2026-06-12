@@ -1,6 +1,7 @@
 //! Lint command implementation
 
 use crate::error::Result;
+use lnix_core::PackageName;
 use lnix_flake_generator::LazyNixParser;
 use lnix_linter::{format_validation_result, format_validation_result_verbose, validate_packages};
 use std::path::PathBuf;
@@ -19,28 +20,14 @@ pub fn execute(config_dir: &str, verbose: bool, arch: Option<&str>) -> Result<bo
     let parser = LazyNixParser::new(PathBuf::from(config_dir));
     let config = parser.read_config()?;
 
-    // Extract all package names (stable + unstable)
-    let mut packages: Vec<String> = Vec::new();
-
-    // Add stable packages
-    packages.extend(
-        config
-            .dev_shell
-            .package
-            .stable
-            .iter()
-            .map(|e| e.name.clone()),
-    );
-
-    // Add unstable packages
-    packages.extend(
-        config
-            .dev_shell
-            .package
-            .unstable
-            .iter()
-            .map(|e| e.name.clone()),
-    );
+    // Collect all channel-based package names (stable + unstable)
+    let package = &config.dev_shell.package;
+    let packages: Vec<PackageName> = package
+        .stable
+        .iter()
+        .chain(package.unstable.iter())
+        .map(|entry| entry.name.clone())
+        .collect();
 
     if packages.is_empty() {
         println!("No packages to validate.");
