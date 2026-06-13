@@ -1,39 +1,77 @@
 # lnix-nix-dispatcher
 
-Nix command dispatcher for LazyNix.
+Run `nix` commands as subprocesses.
 
 ## Overview
 
-This crate provides a clean interface for executing Nix commands within the LazyNix environment. It handles command execution, error handling, and provides a consistent API for Nix operations.
+This crate is the boundary between LazyNix and the `nix` CLI.
 
-## Features
+It launches `nix` processes.
 
-- Execute `nix develop` shells
-- Run commands within Nix development environments
-- Update flake.lock files
-- Run tests in Nix environments
-- Execute tasks with command interpolation
+It handles their exit codes and reports errors.
 
-## Usage
+## Background
 
-```rust
-use lnix_nix_dispatcher::{run_nix_develop, run_nix_develop_command};
+LazyNix drives Nix, it does not reimplement it.
 
-// Enter nix develop shell
-run_nix_develop()?;
+Spawning subprocesses and threading exit codes is repetitive.
 
-// Run a command in nix develop environment
-let exit_code = run_nix_develop_command(vec!["cargo".to_string(), "build".to_string()])?;
-```
+Centralizing it here keeps the rest of the codebase clean.
+
+The CLI calls one function instead of building a `Command`.
+
+## Purpose
+
+Provide a small, consistent API for Nix operations.
+
+Abstract away the details of process spawning.
+
+Leave the interpretation of output to the caller.
+
+## How it works
+
+Each function builds the right `nix` invocation.
+
+It launches it as a subprocess.
+
+It returns either an exit code or an error.
+
+This crate does not parse Nix output.
+
+It only distinguishes success from failure.
+
+A non-zero exit code from `nix` is not a Rust error.
+
+It is returned as an `i32` so the caller can decide what to do.
+
+Typically the caller forwards it as the `lnix` exit code.
 
 ## API
 
-- `run_nix_develop()` - Enter an interactive nix develop shell
-- `run_flake_update()` - Update flake.lock file
-- `run_nix_develop_command(cmd_args)` - Execute a command in nix develop
-- `run_nix_test()` - Run tests in nix environment with LAZYNIX_TEST_MODE=1
-- `run_task_in_nix_env(commands)` - Execute multiple commands sequentially
+| Function | Behavior |
+|----------|----------|
+| `run_nix_develop()` | Enter an interactive `nix develop` shell. |
+| `run_nix_develop_command(args)` | Run one command inside `nix develop`. |
+| `run_flake_update()` | Run `nix flake update`. |
+| `run_nix_test()` | Run tests with `LAZYNIX_TEST_MODE=1`. |
+| `run_task_in_nix_env(commands)` | Run several commands sequentially. |
+| `resolve_version(name, version)` | Resolve a pinned version via nix-versions. |
+| `search_versions(...)` | Search available versions via nix-versions. |
 
-## Error Handling
+## Example
 
-All functions return `Result<T, NixDispatcherError>` for consistent error handling.
+```rust,ignore
+use lnix_nix_dispatcher::{run_nix_develop, run_nix_develop_command};
+
+// Enter an interactive dev shell.
+run_nix_develop()?;
+
+// Or run a single command inside it.
+let exit_code = run_nix_develop_command(vec!["cargo".to_string(), "build".to_string()])?;
+```
+
+## Error handling
+
+All functions return `Result<T, NixDispatcherError>`.
+
+A missing `nix` binary and a failed spawn are the error cases.
