@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       cli: ${{ steps.filter.outputs.cli }}
-      core: ${{ steps.filter.outputs.core }}
+      domain: ${{ steps.filter.outputs.domain }}
       linter: ${{ steps.filter.outputs.linter }}
       flake-generator: ${{ steps.filter.outputs.flake-generator }}
       nix-dispatcher: ${{ steps.filter.outputs.nix-dispatcher }}
@@ -37,9 +37,9 @@ jobs:
               - crates/lnix/tests/**/*.rs
               - crates/lnix/templates/**
               - crates/lnix/Cargo.toml
-            core:
-              - crates/lnix-core/src/**/*.rs
-              - crates/lnix-core/Cargo.toml
+            domain:
+              - crates/lnix-domain/src/**/*.rs
+              - crates/lnix-domain/Cargo.toml
             linter:
               - crates/lnix-linter/src/**/*.rs
               - crates/lnix-linter/tests/**/*.rs
@@ -88,9 +88,9 @@ jobs:
         if: needs.detect-changes.outputs.cli == 'true'
         run: cargo clippy -p lnix --all-targets -- --deny warnings
 
-      - name: Run cargo clippy on core
-        if: needs.detect-changes.outputs.core == 'true'
-        run: cargo clippy -p lnix-core --all-targets -- --deny warnings
+      - name: Run cargo clippy on domain
+        if: needs.detect-changes.outputs.domain == 'true'
+        run: cargo clippy -p lnix-domain --all-targets -- --deny warnings
 
       - name: Run cargo clippy on linter
         if: needs.detect-changes.outputs.linter == 'true'
@@ -136,9 +136,9 @@ jobs:
         if: needs.detect-changes.outputs.cli == 'true'
         run: cargo test -p lnix
 
-      - name: Run cargo test on core
-        if: needs.detect-changes.outputs.core == 'true'
-        run: cargo test -p lnix-core
+      - name: Run cargo test on domain
+        if: needs.detect-changes.outputs.domain == 'true'
+        run: cargo test -p lnix-domain
 
       - name: Run cargo test on linter
         if: needs.detect-changes.outputs.linter == 'true'
