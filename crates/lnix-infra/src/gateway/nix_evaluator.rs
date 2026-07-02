@@ -4,6 +4,7 @@ use std::process::Command;
 
 use lnix_domain::interface::gateway::{EvalOutcome, NixEvaluator};
 use lnix_domain::{NixError, PackageName};
+use rayon::prelude::*;
 
 use crate::process::run_capture;
 
@@ -31,6 +32,20 @@ impl NixEvaluator for SubprocessNixEvaluator {
             success: captured.success,
             stderr: captured.stderr,
         })
+    }
+
+    /// Parallel override: each `nix eval` is a slow independent
+    /// subprocess, so rayon fans them out while the port keeps its
+    /// sequential-looking contract.
+    fn eval_packages(
+        &self,
+        packages: &[PackageName],
+        arch: Option<&str>,
+    ) -> Result<Vec<EvalOutcome>, NixError> {
+        packages
+            .par_iter()
+            .map(|package| self.eval_package(package, arch))
+            .collect()
     }
 }
 

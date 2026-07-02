@@ -17,6 +17,9 @@ pub trait ProjectScaffolder {
     /// Display path of the config file, for user-facing messages.
     fn config_path_display(&self) -> String;
 
+    /// Display path of the flake file, for user-facing messages.
+    fn flake_path_display(&self) -> String;
+
     /// Writes the starter `lazynix.yaml`, replacing any existing file.
     fn write_config_template(&self) -> Result<(), ConfigError>;
 

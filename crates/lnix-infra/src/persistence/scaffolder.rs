@@ -34,6 +34,10 @@ impl ProjectScaffolder for FsProjectScaffolder {
         self.paths.config_file().display().to_string()
     }
 
+    fn flake_path_display(&self) -> String {
+        self.paths.flake_file().display().to_string()
+    }
+
     fn write_config_template(&self) -> Result<(), ConfigError> {
         if !self.paths.config_dir().exists() {
             return Err(ConfigError::NotFound(

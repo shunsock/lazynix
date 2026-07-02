@@ -352,20 +352,13 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 name = "lnix"
 version = "1.0.0"
 dependencies = [
- "anyhow",
  "assert_cmd",
  "clap",
  "lnix-app",
- "lnix-domain",
- "lnix-flake-generator",
  "lnix-infra",
- "lnix-linter",
- "lnix-nix-dispatcher",
  "predicates",
  "serde_yaml",
- "serial_test",
  "tempfile",
- "thiserror",
 ]
 
 [[package]]
@@ -404,6 +397,7 @@ name = "lnix-infra"
 version = "1.0.0"
 dependencies = [
  "lnix-domain",
+ "rayon",
  "serde",
  "serde_json",
  "serde_yaml",

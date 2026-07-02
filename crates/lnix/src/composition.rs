@@ -10,13 +10,16 @@ use lnix_app::Deps;
 use lnix_infra::WorkspacePaths;
 use lnix_infra::gateway::{NixVersionsResolver, SubprocessNixEvaluator, SubprocessNixRunner};
 use lnix_infra::output::TerminalOutput;
-use lnix_infra::persistence::{FsConfigRepository, FsEnvFileChecker, FsFlakeWriter};
+use lnix_infra::persistence::{
+    FsConfigRepository, FsEnvFileChecker, FsFlakeWriter, FsProjectScaffolder,
+};
 
 /// Owns one adapter per port for the duration of a command.
 pub struct AdapterSet {
     repo: FsConfigRepository,
     writer: FsFlakeWriter,
     env: FsEnvFileChecker,
+    scaffolder: FsProjectScaffolder,
     nix: SubprocessNixRunner,
     nix_eval: SubprocessNixEvaluator,
     resolver: NixVersionsResolver,
@@ -29,7 +32,8 @@ impl AdapterSet {
         Self {
             repo: FsConfigRepository::new(paths.clone()),
             writer: FsFlakeWriter::new(paths.clone()),
-            env: FsEnvFileChecker::new(paths),
+            env: FsEnvFileChecker::new(paths.clone()),
+            scaffolder: FsProjectScaffolder::new(paths),
             nix: SubprocessNixRunner,
             nix_eval: SubprocessNixEvaluator,
             resolver: NixVersionsResolver,
@@ -42,6 +46,7 @@ impl AdapterSet {
             repo: &self.repo,
             writer: &self.writer,
             env: &self.env,
+            scaffolder: &self.scaffolder,
             nix: &self.nix,
             nix_eval: &self.nix_eval,
             resolver: &self.resolver,
