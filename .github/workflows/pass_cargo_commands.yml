@@ -12,10 +12,16 @@ on:
       - Cargo.toml
       - Cargo.lock
 
+permissions:
+  contents: read
+
 jobs:
   detect-changes:
     name: Detect changed crates
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       cli: ${{ steps.filter.outputs.cli }}
       app: ${{ steps.filter.outputs.app }}
@@ -27,10 +33,12 @@ jobs:
       any-crate: ${{ steps.filter.outputs.any-crate }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590  # v3
         id: filter
         with:
           filters: |
@@ -70,26 +78,32 @@ jobs:
   cargo-fmt-and-clippy:
     name: cargo fmt + clippy
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.any-crate == 'true'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v27
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b  # v27
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
 
       - name: Run cargo fmt
         run: cargo fmt --all --check
@@ -125,24 +139,31 @@ jobs:
   cargo-test:
     name: cargo test
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
     needs: [detect-changes, cargo-fmt-and-clippy]
     if: needs.detect-changes.outputs.any-crate == 'true'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v27
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b  # v27
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
+        with:
+          toolchain: stable
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
 
       # Tests spawn `nix eval` in parallel. Initialize the nix tarball
       # cache serially first, otherwise concurrent evaluations race on
