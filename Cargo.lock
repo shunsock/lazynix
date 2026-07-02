@@ -355,12 +355,11 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
- "lnix-core",
+ "lnix-domain",
  "lnix-flake-generator",
  "lnix-linter",
  "lnix-nix-dispatcher",
  "predicates",
- "serde",
  "serde_yaml",
  "serial_test",
  "tempfile",
@@ -368,7 +367,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lnix-core"
+name = "lnix-domain"
 version = "1.0.0"
 dependencies = [
  "serde",
@@ -381,7 +380,7 @@ name = "lnix-flake-generator"
 version = "1.0.0"
 dependencies = [
  "anyhow",
- "lnix-core",
+ "lnix-domain",
  "serde",
  "serde_yaml",
  "serial_test",
@@ -394,8 +393,9 @@ name = "lnix-linter"
 version = "1.0.0"
 dependencies = [
  "anyhow",
- "lnix-core",
+ "lnix-domain",
  "rayon",
+ "serial_test",
  "thiserror",
 ]
 

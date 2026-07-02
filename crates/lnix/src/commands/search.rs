@@ -1,6 +1,6 @@
 //! `lnix search` — discover available package versions via nix-versions.
 
-use lnix_core::PackageName;
+use lnix_domain::PackageName;
 use lnix_nix_dispatcher::search_versions;
 
 use crate::error::Result;

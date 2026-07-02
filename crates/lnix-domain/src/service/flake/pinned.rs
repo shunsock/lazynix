@@ -5,7 +5,7 @@
 //! `buildInputs` entry. Only packages whose version has already been
 //! resolved to a commit + attribute are emitted.
 
-use lnix_core::{Config, PinnedPackageEntry};
+use crate::{Config, PinnedPackageEntry};
 
 fn normalize_version(version: &str) -> String {
     version.replace('.', "-")

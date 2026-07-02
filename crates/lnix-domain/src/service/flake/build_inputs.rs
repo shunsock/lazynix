@@ -5,9 +5,9 @@
 //! groups are omitted, and an all-empty list yields a placeholder
 //! comment so the generated flake stays valid.
 
-use lnix_core::{Config, PackageEntry, PinnedPackageEntry};
+use crate::{Config, PackageEntry, PinnedPackageEntry};
 
-use crate::generator::pinned;
+use super::pinned;
 
 fn render_channel(import_name: &str, entries: &[PackageEntry]) -> String {
     entries

@@ -1,3 +1,5 @@
+//! Task-command assembly: CLI-argument interpolation.
+
 /// Interpolates CLI arguments into command templates
 ///
 /// Replaces `{{.CLI_ARGS}}` placeholder with the provided CLI arguments.
@@ -15,12 +17,13 @@
 /// # Examples
 ///
 /// ```
+/// use lnix_domain::interpolate_command;
+///
 /// let commands = vec!["uv run python {{.CLI_ARGS}}".to_string()];
 /// let args = vec!["main.py".to_string(), "--verbose".to_string()];
 /// let result = interpolate_command(&commands, &args);
 /// assert_eq!(result, vec!["uv run python main.py --verbose"]);
 /// ```
-#[allow(dead_code)]
 pub fn interpolate_command(command_list: &[String], cli_args: &[String]) -> Vec<String> {
     let args_str = cli_args.join(" ");
     command_list

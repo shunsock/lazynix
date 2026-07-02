@@ -1,19 +1,9 @@
 //! Parallel package validation orchestrator
 
 use crate::error::ValidationError;
-use crate::error_classifier::classify_nix_eval_error;
 use crate::nix_eval::{eval_package, eval_package_for_arch};
-use lnix_core::PackageName;
+use lnix_domain::{PackageName, ValidationResult, classify_nix_eval_error};
 use rayon::prelude::*;
-
-/// Result of validating multiple packages
-#[derive(Debug, Clone)]
-pub struct ValidationResult {
-    /// Packages that passed validation
-    pub valid_packages: Vec<String>,
-    /// Validation errors encountered
-    pub errors: Vec<ValidationError>,
-}
 
 /// Validates multiple packages in parallel
 ///
@@ -27,7 +17,7 @@ pub struct ValidationResult {
 ///
 /// # Example
 /// ```no_run
-/// use lnix_core::PackageName;
+/// use lnix_domain::PackageName;
 /// use lnix_linter::validator::validate_packages;
 ///
 /// let packages: Vec<PackageName> =
@@ -75,17 +65,13 @@ fn validate_single_package(
             if result.success {
                 Ok(())
             } else {
-                // Classify the error based on stderr
                 Err(classify_nix_eval_error(package.as_str(), &result.stderr))
             }
         }
-        Err(linter_error) => {
-            // Convert LinterError to ValidationError
-            Err(ValidationError::UnknownError {
-                package: package.to_string(),
-                message: linter_error.to_string(),
-            })
-        }
+        Err(linter_error) => Err(ValidationError::UnknownError {
+            package: package.to_string(),
+            message: linter_error.to_string(),
+        }),
     };
 
     (package.to_string(), validation_result)

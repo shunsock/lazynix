@@ -2,12 +2,11 @@
 
 use std::path::Path;
 
-use lnix_core::{TaskName, validate_config};
+use lnix_domain::{TaskName, interpolate_command, validate_config};
 use lnix_flake_generator::LazyNixParser;
 use lnix_nix_dispatcher::run_task_in_nix_env;
 
 use crate::error::{LazyNixError, Result};
-use crate::task_interpolator::interpolate_command;
 
 /// Looks up `task_name`, interpolates `args` into its commands, and runs
 /// them sequentially in `nix develop`. Returns the task's exit code.
@@ -19,7 +18,10 @@ pub fn execute(config_dir: &Path, task_name: String, args: Vec<String>) -> Resul
     let config = parser.read_config()?;
 
     println!("Validating configuration...");
-    validate_config(&config)?;
+    // TODO: route diagnostics through OutputPort once use-cases land (#27/#29)
+    for diagnostic in validate_config(&config)? {
+        eprintln!("Warning: {}", diagnostic);
+    }
 
     let tasks = config
         .dev_shell

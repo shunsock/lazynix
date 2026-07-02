@@ -1,7 +1,7 @@
 //! Nix eval executor for package validation
 
 use crate::error::Result;
-use lnix_core::PackageName;
+use lnix_domain::PackageName;
 use std::process::Command;
 
 /// Result of executing a `nix eval` command
@@ -31,7 +31,7 @@ pub struct NixEvalResult {
 ///
 /// # Example
 /// ```no_run
-/// use lnix_core::PackageName;
+/// use lnix_domain::PackageName;
 /// use lnix_linter::nix_eval::eval_package;
 ///
 /// let package: PackageName = "vim".parse().unwrap();
@@ -64,7 +64,7 @@ pub fn eval_package(package: &PackageName) -> Result<NixEvalResult> {
 ///
 /// # Example
 /// ```no_run
-/// use lnix_core::PackageName;
+/// use lnix_domain::PackageName;
 /// use lnix_linter::nix_eval::eval_package_for_arch;
 ///
 /// let package: PackageName = "vim".parse().unwrap();

@@ -1,4 +1,4 @@
-use lnix_core::Config;
+use lnix_domain::Config;
 
 use std::fs;
 use std::path::PathBuf;

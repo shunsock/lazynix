@@ -1,7 +1,7 @@
 //! Lint command implementation
 
 use crate::error::Result;
-use lnix_core::PackageName;
+use lnix_domain::PackageName;
 use lnix_flake_generator::LazyNixParser;
 use lnix_linter::{format_validation_result, format_validation_result_verbose, validate_packages};
 use std::path::PathBuf;
