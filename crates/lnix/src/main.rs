@@ -2,8 +2,6 @@ mod cli_parser;
 mod commands;
 mod env_validator;
 mod error;
-mod lazynix_settings_yaml;
-mod task_interpolator;
 
 use std::process;
 

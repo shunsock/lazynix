@@ -6,7 +6,7 @@ Parse `lazynix.yaml` and render `flake.nix`.
 
 This crate performs the core YAML-to-Nix transformation.
 
-It reads the config into the `lnix-core` AST.
+It reads the config into the `lnix-domain` AST.
 
 It renders that AST into a `flake.nix` string.
 

@@ -14,7 +14,7 @@ Each crate has its own README with more detail.
 | Crate | Kind | Responsibility |
 |-------|------|----------------|
 | [`lnix`](./lnix) | binary | CLI entry point and command orchestration. |
-| [`lnix-core`](./lnix-core) | library | Domain value objects and the `lazynix.yaml` config AST. |
+| [`lnix-domain`](./lnix-domain) | library | Domain layer: value objects, config AST, pure services, and ports. |
 | [`lnix-flake-generator`](./lnix-flake-generator) | library | Parse `lazynix.yaml` and render `flake.nix`. |
 | [`lnix-linter`](./lnix-linter) | library | Validate packages exist via `nix eval`. |
 | [`lnix-nix-dispatcher`](./lnix-nix-dispatcher) | library | Run `nix` commands as subprocesses. |
@@ -25,7 +25,7 @@ Dependencies flow in one direction.
 
 The binary depends on the libraries.
 
-The libraries depend on `lnix-core` (or nothing of ours).
+The libraries depend on `lnix-domain` (or nothing of ours).
 
 ```
                  lnix  (binary)
@@ -35,10 +35,10 @@ The libraries depend on `lnix-core` (or nothing of ours).
         │          │                               │
         └────┬─────┘                               │
              v                                     │
-          lnix-core  <───────────────(no dep)──────┘
+          lnix-domain  <───────────────(no dep)──────┘
 ```
 
-`lnix-core` is the foundation.
+`lnix-domain` is the foundation.
 
 It performs no I/O and depends only on `serde` and `thiserror`.
 
@@ -48,7 +48,7 @@ It does not depend on any other LazyNix crate.
 
 ## Why this shape
 
-Domain types live in one place (`lnix-core`).
+Domain types live in one place (`lnix-domain`).
 
 So validation rules are not duplicated across crates.
 

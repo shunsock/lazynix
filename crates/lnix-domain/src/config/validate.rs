@@ -1,11 +1,15 @@
 use crate::config::dev_shell::Config;
-use crate::error::ValidationError;
+use crate::error::{Diagnostic, ValidationError};
 
 /// Checks cross-field constraints that value objects cannot express.
 ///
 /// Field-level invariants (package names, task names, env var names,
 /// versions) are already guaranteed by the type system at this point.
-pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
+///
+/// Returns non-fatal findings as [`Diagnostic`] values instead of
+/// printing them, so this function stays free of I/O; the caller
+/// decides how to display them.
+pub fn validate_config(config: &Config) -> Result<Vec<Diagnostic>, ValidationError> {
     if let Some(tasks) = &config.dev_shell.task {
         for (task_name, task_def) in tasks {
             if task_def.commands.is_empty() {
@@ -16,14 +20,15 @@ pub fn validate_config(config: &Config) -> Result<(), ValidationError> {
         }
     }
 
+    let mut diagnostics = Vec::new();
     let package = &config.dev_shell.package;
     let has_no_packages =
         package.stable.is_empty() && package.unstable.is_empty() && package.pinned.is_empty();
     if has_no_packages {
-        eprintln!("Warning: No packages specified in lazynix.yaml");
+        diagnostics.push(Diagnostic::NoPackages);
     }
 
-    Ok(())
+    Ok(diagnostics)
 }
 
 #[cfg(test)]
@@ -49,7 +54,24 @@ devShell:
         let result = validate_config(&config);
 
         // Assert
-        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Vec::<Diagnostic>::new());
+    }
+
+    #[test]
+    fn reports_no_packages_as_diagnostic() {
+        // Arrange
+        let yaml = r#"
+devShell:
+  package:
+    stable: []
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+
+        // Act
+        let result = validate_config(&config);
+
+        // Assert
+        assert_eq!(result.unwrap(), vec![Diagnostic::NoPackages]);
     }
 
     #[test]

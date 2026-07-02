@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/lnix",
-    "crates/lnix-core",
+    "crates/lnix-domain",
     "crates/lnix-flake-generator",
     "crates/lnix-linter",
     "crates/lnix-nix-dispatcher",
@@ -16,7 +16,7 @@ repository = "https://github.com/shunsock/lazynix"
 
 [workspace.dependencies]
 # Internal crates
-lnix-core = { path = "crates/lnix-core" }
+lnix-domain = { path = "crates/lnix-domain" }
 lnix-flake-generator = { path = "crates/lnix-flake-generator" }
 lnix-linter = { path = "crates/lnix-linter" }
 lnix-nix-dispatcher = { path = "crates/lnix-nix-dispatcher" }

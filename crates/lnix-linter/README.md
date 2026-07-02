@@ -53,14 +53,14 @@ The `--arch` flag checks a target other than the current system.
 
 For example, validate an `x86_64-linux` config from an `aarch64-darwin` machine.
 
-Package names arrive as `lnix_core::PackageName`.
+Package names arrive as `lnix_domain::PackageName`.
 
 So shell-injection safety is a type guarantee, not a runtime check.
 
 ## Example
 
 ```rust,ignore
-use lnix_core::PackageName;
+use lnix_domain::PackageName;
 use lnix_linter::{validate_packages, format_validation_result};
 
 let packages: Vec<PackageName> =

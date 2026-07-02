@@ -1,6 +1,6 @@
 //! Error classification for nix eval output
 
-use crate::error::ValidationError;
+use super::error::PackageValidationError;
 
 /// Classifies nix eval error output into structured error types
 ///
@@ -9,48 +9,42 @@ use crate::error::ValidationError;
 /// * `stderr` - Standard error output from `nix eval` command
 ///
 /// # Returns
-/// A `ValidationError` variant based on the error message pattern
+/// A `PackageValidationError` variant based on the error message pattern
 ///
 /// # Examples
 /// ```
-/// use lnix_linter::error_classifier::classify_nix_eval_error;
-/// use lnix_linter::error::ValidationError;
+/// use lnix_domain::{PackageValidationError, classify_nix_eval_error};
 ///
 /// let stderr = "error: attribute 'foo' does not provide attribute 'outPath'";
 /// let result = classify_nix_eval_error("foo", stderr);
-/// assert!(matches!(result, ValidationError::PackageNotFound { .. }));
+/// assert!(matches!(result, PackageValidationError::PackageNotFound { .. }));
 /// ```
-pub fn classify_nix_eval_error(package: &str, stderr: &str) -> ValidationError {
-    // Check for "does not provide attribute" pattern (package not found)
+pub fn classify_nix_eval_error(package: &str, stderr: &str) -> PackageValidationError {
     if stderr.contains("does not provide attribute") || stderr.contains("does not provide") {
-        return ValidationError::PackageNotFound {
+        return PackageValidationError::PackageNotFound {
             package: package.to_string(),
         };
     }
 
-    // Check for architecture unsupported pattern
     if stderr.contains("is not available on the requested hostPlatform")
         || stderr.contains("not available on the requested hostPlatform")
     {
-        // Try to extract architecture from error message or context
         let arch = extract_architecture(stderr).unwrap_or_else(|| "unknown".to_string());
-        return ValidationError::ArchitectureUnsupported {
+        return PackageValidationError::ArchitectureUnsupported {
             package: package.to_string(),
             arch,
         };
     }
 
-    // Check for unsupported system patterns
     if stderr.contains("unsupported system") || stderr.contains("is not supported") {
         let arch = extract_architecture(stderr).unwrap_or_else(|| "unknown".to_string());
-        return ValidationError::ArchitectureUnsupported {
+        return PackageValidationError::ArchitectureUnsupported {
             package: package.to_string(),
             arch,
         };
     }
 
-    // Default to unknown error
-    ValidationError::UnknownError {
+    PackageValidationError::UnknownError {
         package: package.to_string(),
         message: extract_error_message(stderr),
     }
@@ -60,7 +54,6 @@ pub fn classify_nix_eval_error(package: &str, stderr: &str) -> ValidationError {
 ///
 /// Looks for common architecture patterns like "aarch64-darwin", "x86_64-linux", etc.
 fn extract_architecture(stderr: &str) -> Option<String> {
-    // Common architecture patterns
     let arch_patterns = [
         "aarch64-darwin",
         "x86_64-darwin",
@@ -105,7 +98,7 @@ mod tests {
         let result = classify_nix_eval_error("nonexistent", stderr);
         assert_eq!(
             result,
-            ValidationError::PackageNotFound {
+            PackageValidationError::PackageNotFound {
                 package: "nonexistent".to_string()
             }
         );
@@ -115,7 +108,7 @@ mod tests {
     fn test_classify_package_not_found_variant() {
         let stderr = "attribute 'xyz' does not provide";
         let result = classify_nix_eval_error("xyz", stderr);
-        assert!(matches!(result, ValidationError::PackageNotFound { .. }));
+        assert!(matches!(result, PackageValidationError::PackageNotFound { .. }));
     }
 
     #[test]
@@ -125,7 +118,7 @@ mod tests {
         let result = classify_nix_eval_error("chromium", stderr);
         assert_eq!(
             result,
-            ValidationError::ArchitectureUnsupported {
+            PackageValidationError::ArchitectureUnsupported {
                 package: "chromium".to_string(),
                 arch: "aarch64-darwin".to_string()
             }
@@ -138,7 +131,7 @@ mod tests {
         let result = classify_nix_eval_error("somepackage", stderr);
         assert!(matches!(
             result,
-            ValidationError::ArchitectureUnsupported { .. }
+            PackageValidationError::ArchitectureUnsupported { .. }
         ));
     }
 
@@ -148,7 +141,7 @@ mod tests {
         let result = classify_nix_eval_error("pkg", stderr);
         assert_eq!(
             result,
-            ValidationError::ArchitectureUnsupported {
+            PackageValidationError::ArchitectureUnsupported {
                 package: "pkg".to_string(),
                 arch: "x86_64-linux".to_string()
             }
@@ -159,8 +152,8 @@ mod tests {
     fn test_classify_unknown_error() {
         let stderr = "some random error message";
         let result = classify_nix_eval_error("package", stderr);
-        assert!(matches!(result, ValidationError::UnknownError { .. }));
-        if let ValidationError::UnknownError { package, message } = result {
+        assert!(matches!(result, PackageValidationError::UnknownError { .. }));
+        if let PackageValidationError::UnknownError { package, message } = result {
             assert_eq!(package, "package");
             assert!(message.contains("some random error message"));
         }
@@ -170,14 +163,14 @@ mod tests {
     fn test_classify_empty_stderr() {
         let stderr = "";
         let result = classify_nix_eval_error("package", stderr);
-        assert!(matches!(result, ValidationError::UnknownError { .. }));
+        assert!(matches!(result, PackageValidationError::UnknownError { .. }));
     }
 
     #[test]
     fn test_classify_multiline_error() {
         let stderr = "error: some error\nerror: attribute 'pkg' does not provide attribute 'outPath'\nother info";
         let result = classify_nix_eval_error("pkg", stderr);
-        assert!(matches!(result, ValidationError::PackageNotFound { .. }));
+        assert!(matches!(result, PackageValidationError::PackageNotFound { .. }));
     }
 
     #[test]

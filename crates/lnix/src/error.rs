@@ -26,14 +26,14 @@ pub enum LazyNixError {
 
 pub type Result<T> = std::result::Result<T, LazyNixError>;
 
-impl From<lnix_core::ValidationError> for LazyNixError {
-    fn from(err: lnix_core::ValidationError) -> Self {
+impl From<lnix_domain::ValidationError> for LazyNixError {
+    fn from(err: lnix_domain::ValidationError) -> Self {
         LazyNixError::Validation(err.to_string())
     }
 }
 
-impl From<lnix_core::ParseError> for LazyNixError {
-    fn from(err: lnix_core::ParseError) -> Self {
+impl From<lnix_domain::ParseError> for LazyNixError {
+    fn from(err: lnix_domain::ParseError) -> Self {
         LazyNixError::Validation(err.to_string())
     }
 }

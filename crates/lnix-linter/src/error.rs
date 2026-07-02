@@ -6,7 +6,7 @@ use thiserror::Error;
 /// Errors that can occur during linting operations
 ///
 /// Note: invalid package names are no longer an error case here.
-/// [`lnix_core::PackageName`] makes them unrepresentable.
+/// [`lnix_domain::PackageName`] makes them unrepresentable.
 #[derive(Error, Debug)]
 pub enum LinterError {
     /// Failed to execute nix command
@@ -25,31 +25,8 @@ pub enum LinterError {
 /// Result type for linter operations
 pub type Result<T> = std::result::Result<T, LinterError>;
 
-/// Validation errors that occur when checking package availability
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub enum ValidationError {
-    /// Package does not exist in nixpkgs
-    #[error("Package '{package}' not found in nixpkgs")]
-    PackageNotFound {
-        /// Name of the package that was not found
-        package: String,
-    },
-
-    /// Package exists but is not available for the target architecture
-    #[error("Package '{package}' is not available on architecture '{arch}'")]
-    ArchitectureUnsupported {
-        /// Name of the package
-        package: String,
-        /// Target architecture
-        arch: String,
-    },
-
-    /// Unknown error occurred during validation
-    #[error("Unknown error for package '{package}': {message}")]
-    UnknownError {
-        /// Name of the package
-        package: String,
-        /// Error message
-        message: String,
-    },
-}
+/// Classification of package-availability failures.
+///
+/// The type moved to the domain layer; this alias keeps the linter's
+/// public API stable until the crate is dismantled.
+pub use lnix_domain::PackageValidationError as ValidationError;

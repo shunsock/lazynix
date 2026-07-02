@@ -1,16 +1,20 @@
-# lnix-core
+# lnix-domain
 
-Domain value objects and the configuration AST for LazyNix.
+The domain layer of LazyNix: value objects, the configuration AST, pure services, and ports.
 
 ## Overview
 
-This crate is the foundation of the workspace.
+This crate is the innermost layer of the workspace.
 
-It defines two things.
+It defines four things.
 
 First, value objects such as `PackageName` and `RegistryUrl`.
 
 Second, the `Config` AST that mirrors `lazynix.yaml`.
+
+Third, pure services under `service/`: flake rendering, lint classification and reporting, task-command interpolation.
+
+Fourth, ports under `interface/`: the traits that infrastructure adapters implement (persistence, gateway, output), with the focused error types they return.
 
 It performs no I/O.
 
@@ -57,7 +61,7 @@ For example: a task must have at least one command.
 A package name validates itself.
 
 ```rust,ignore
-use lnix_core::PackageName;
+use lnix_domain::PackageName;
 
 // Accepted: alphanumerics, '-', '_', and '.' for nested attributes.
 let name: PackageName = "python312Packages.pip".parse().unwrap();
@@ -69,7 +73,7 @@ assert!("pkg; rm -rf /".parse::<PackageName>().is_err());
 Parsing a config rejects an invalid task name before any flake is generated.
 
 ```rust,ignore
-use lnix_core::Config;
+use lnix_domain::Config;
 
 let yaml = r#"
 devShell:

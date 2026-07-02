@@ -1,6 +1,6 @@
 //! Integration tests for the linter functionality
 
-use lnix_core::PackageName;
+use lnix_domain::PackageName;
 use lnix_linter::{ValidationError, format_validation_result, validate_packages};
 
 fn packages(names: &[&str]) -> Vec<PackageName> {

@@ -8,13 +8,12 @@
 use std::fs;
 use std::path::Path;
 
-use lnix_core::{Config, validate_config};
+use lnix_domain::{Config, Settings, validate_config};
 use lnix_flake_generator::{LazyNixParser, render_flake};
 use lnix_nix_dispatcher::{resolve_version, run_flake_update};
 
 use crate::env_validator;
 use crate::error::Result;
-use crate::lazynix_settings_yaml::Settings;
 
 /// A validated config together with the optional registry override that
 /// settings supplied, ready to be rendered into a flake.
@@ -83,7 +82,10 @@ pub fn load_config(config_dir: &Path) -> Result<LoadedConfig> {
     let mut config = parser.read_config()?;
 
     println!("Validating configuration...");
-    validate_config(&config)?;
+    // TODO: route diagnostics through OutputPort once use-cases land (#27/#29)
+    for diagnostic in validate_config(&config)? {
+        eprintln!("Warning: {}", diagnostic);
+    }
     env_validator::validate_env_config(&config.dev_shell.env, config_dir)?;
 
     resolve_pinned_packages(&parser, &mut config)?;

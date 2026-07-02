@@ -1,5 +1,5 @@
 use crate::error::{LazyNixError, Result};
-use lnix_core::Env;
+use lnix_domain::Env;
 use std::path::{Path, PathBuf};
 
 /// Resolve dotenv file path relative to base directory
@@ -16,7 +16,7 @@ fn resolve_dotenv_path(path: &str, base_dir: &Path) -> PathBuf {
 /// Validate environment configuration.
 ///
 /// Variable name validity is already guaranteed by
-/// [`lnix_core::EnvVarName`]; only filesystem state (dotenv file
+/// [`lnix_domain::EnvVarName`]; only filesystem state (dotenv file
 /// existence) needs to be checked here.
 pub fn validate_env_config(env: &Option<Env>, base_dir: &Path) -> Result<()> {
     let Some(env) = env else {

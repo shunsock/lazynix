@@ -5,7 +5,7 @@
 
 mod messages;
 
-use crate::validator::ValidationResult;
+use super::result::ValidationResult;
 use messages::{format_error_sections, format_success_message};
 
 /// Formats a validation result for the user.
@@ -37,7 +37,7 @@ pub fn format_validation_result_verbose(result: &ValidationResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::ValidationError;
+    use super::super::error::PackageValidationError;
 
     #[test]
     fn reports_success_with_package_count() {
@@ -60,7 +60,7 @@ mod tests {
         // Arrange
         let result = ValidationResult {
             valid_packages: vec![],
-            errors: vec![ValidationError::PackageNotFound {
+            errors: vec![PackageValidationError::PackageNotFound {
                 package: "test".to_string(),
             }],
         };

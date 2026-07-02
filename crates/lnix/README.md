@@ -42,7 +42,7 @@ The commands that generate a flake share one pipeline.
 
 `commands/pipeline.rs` holds that shared prefix:
 
-1. read and validate the config (`lnix-core`, `lnix-flake-generator`)
+1. read and validate the config (`lnix-domain`, `lnix-flake-generator`)
 2. resolve pinned package versions (`lnix-nix-dispatcher`)
 3. render and write `flake.nix` (`lnix-flake-generator`)
 

@@ -1,6 +1,6 @@
 [package]
-name = "lnix-core"
-description = "Core domain types and value objects for LazyNix"
+name = "lnix-domain"
+description = "Domain layer for LazyNix: value objects, config AST, pure services, and ports"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }

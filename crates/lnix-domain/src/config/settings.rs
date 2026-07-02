@@ -1,4 +1,4 @@
-use lnix_core::RegistryUrl;
+use crate::values::RegistryUrl;
 use serde::{Deserialize, Serialize};
 
 /// Optional per-user settings from `lazynix-settings.yaml`.

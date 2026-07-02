@@ -10,7 +10,7 @@ mod pinned;
 mod shell_hook;
 mod test_runner;
 
-use lnix_core::Config;
+use crate::Config;
 
 use build_inputs::render_build_inputs;
 use shell_hook::compose_shell_hook;
@@ -18,7 +18,7 @@ use shell_hook::compose_shell_hook;
 /// Default stable nixpkgs revision, used unless overridden by settings.
 const DEFAULT_STABLE_URL: &str = "github:NixOS/nixpkgs/nixos-25.11";
 
-fn render_inputs_section(stable_url: &str, resolved: &[&lnix_core::PinnedPackageEntry]) -> String {
+fn render_inputs_section(stable_url: &str, resolved: &[&crate::PinnedPackageEntry]) -> String {
     let mut lines = vec![
         format!("    nixpkgs.url = \"{}\";", stable_url),
         "    nixpkgs-unstable.url = \"github:NixOS/nixpkgs/nixos-unstable\";".to_string(),
@@ -31,7 +31,7 @@ fn render_inputs_section(stable_url: &str, resolved: &[&lnix_core::PinnedPackage
     lines.join("\n")
 }
 
-fn render_let_section(allow_unfree: bool, resolved: &[&lnix_core::PinnedPackageEntry]) -> String {
+fn render_let_section(allow_unfree: bool, resolved: &[&crate::PinnedPackageEntry]) -> String {
     let mut bindings = vec![
         format!(
             "        stablePackages = import nixpkgs {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",

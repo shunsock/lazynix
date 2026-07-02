@@ -1,6 +1,6 @@
 //! Per-category error message bodies and the success summary.
 
-use crate::error::ValidationError;
+use super::super::error::PackageValidationError;
 use std::collections::HashMap;
 
 /// Success summary line.
@@ -9,7 +9,7 @@ pub(super) fn format_success_message(count: usize) -> String {
 }
 
 /// Renders every non-empty error category into one combined report.
-pub(super) fn format_error_sections(errors: &[ValidationError]) -> String {
+pub(super) fn format_error_sections(errors: &[PackageValidationError]) -> String {
     let (not_found, arch_unsupported, unknown) = group_errors(errors);
 
     let mut output = String::new();
@@ -34,18 +34,18 @@ type ErrorGroups<'a> = (
 );
 
 /// Partitions errors by category, borrowing their fields.
-fn group_errors(errors: &[ValidationError]) -> ErrorGroups<'_> {
+fn group_errors(errors: &[PackageValidationError]) -> ErrorGroups<'_> {
     let mut not_found = Vec::new();
     let mut arch_unsupported = Vec::new();
     let mut unknown = Vec::new();
 
     for error in errors {
         match error {
-            ValidationError::PackageNotFound { package } => not_found.push(package.as_str()),
-            ValidationError::ArchitectureUnsupported { package, arch } => {
+            PackageValidationError::PackageNotFound { package } => not_found.push(package.as_str()),
+            PackageValidationError::ArchitectureUnsupported { package, arch } => {
                 arch_unsupported.push((package.as_str(), arch.as_str()))
             }
-            ValidationError::UnknownError { package, message } => {
+            PackageValidationError::UnknownError { package, message } => {
                 unknown.push((package.as_str(), message.as_str()))
             }
         }
@@ -106,10 +106,10 @@ mod tests {
     fn package_not_found_lists_each_package_and_link() {
         // Arrange
         let errors = vec![
-            ValidationError::PackageNotFound {
+            PackageValidationError::PackageNotFound {
                 package: "nonexistent1".to_string(),
             },
-            ValidationError::PackageNotFound {
+            PackageValidationError::PackageNotFound {
                 package: "nonexistent2".to_string(),
             },
         ];
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn architecture_unsupported_names_package_and_arch() {
         // Arrange
-        let errors = vec![ValidationError::ArchitectureUnsupported {
+        let errors = vec![PackageValidationError::ArchitectureUnsupported {
             package: "chromium".to_string(),
             arch: "aarch64-darwin".to_string(),
         }];
@@ -145,10 +145,10 @@ mod tests {
     fn combines_distinct_error_categories() {
         // Arrange
         let errors = vec![
-            ValidationError::PackageNotFound {
+            PackageValidationError::PackageNotFound {
                 package: "pkg1".to_string(),
             },
-            ValidationError::ArchitectureUnsupported {
+            PackageValidationError::ArchitectureUnsupported {
                 package: "pkg2".to_string(),
                 arch: "x86_64-linux".to_string(),
             },
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn unknown_error_includes_package_and_message() {
         // Arrange
-        let errors = vec![ValidationError::UnknownError {
+        let errors = vec![PackageValidationError::UnknownError {
             package: "somepkg".to_string(),
             message: "strange error occurred".to_string(),
         }];

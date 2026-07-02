@@ -4,10 +4,10 @@
 //! vars, then shell aliases, then the user's own hook lines, and
 //! finally the test-runner block (when in test mode).
 
-use lnix_core::{Config, EnvVar};
+use crate::{Config, EnvVar};
 
-use crate::generator::path::resolve_path;
-use crate::generator::test_runner::render_test_execution;
+use super::path::resolve_path;
+use super::test_runner::render_test_execution;
 
 fn render_dotenv_loading(dotenv_files: &[String]) -> String {
     dotenv_files
