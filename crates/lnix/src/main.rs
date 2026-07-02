@@ -1,5 +1,6 @@
 mod cli_parser;
 mod commands;
+mod composition;
 mod env_validator;
 mod error;
 
@@ -8,6 +9,7 @@ use std::process;
 use clap::Parser;
 
 use cli_parser::{Cli, Commands};
+use composition::AdapterSet;
 use error::Result;
 
 fn main() {
@@ -24,7 +26,10 @@ fn run() -> Result<()> {
     match cli.command {
         Commands::Init { force } => commands::init::execute(config_dir, force)?,
         Commands::Update => commands::update::execute()?,
-        Commands::Develop { update } => commands::develop::execute(config_dir, update)?,
+        Commands::Develop { update } => {
+            let adapters = AdapterSet::new(config_dir);
+            exit_on_failure(run_usecase(lnix_app::develop(&adapters.deps(), update)));
+        }
         Commands::Test { update } => commands::test::execute(config_dir, update)?,
         Commands::Run {
             update,
@@ -58,5 +63,17 @@ fn run() -> Result<()> {
 fn exit_on_failure(exit_code: i32) {
     if exit_code != 0 {
         process::exit(exit_code);
+    }
+}
+
+/// Unwraps a use-case result: failures print like every other command
+/// error ("Error: ...") and exit 1; successes yield the exit code.
+fn run_usecase(result: std::result::Result<i32, lnix_app::ApplicationError>) -> i32 {
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
     }
 }

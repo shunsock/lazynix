@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A user-defined task: a description and the commands to run.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDef {
     #[serde(default)]

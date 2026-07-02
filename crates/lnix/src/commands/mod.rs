@@ -4,7 +4,6 @@
 //! generation prefix via [`pipeline`]. `main` only parses arguments and
 //! dispatches into these `execute` functions.
 
-pub mod develop;
 pub mod init;
 pub mod lint;
 pub mod pipeline;
