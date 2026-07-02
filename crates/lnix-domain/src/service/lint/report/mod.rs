@@ -36,8 +36,8 @@ pub fn format_validation_result_verbose(result: &ValidationResult) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::error::PackageValidationError;
+    use super::*;
 
     #[test]
     fn reports_success_with_package_count() {

@@ -68,12 +68,10 @@ fn validate_single_package(
                 Err(classify_nix_eval_error(package.as_str(), &result.stderr))
             }
         }
-        Err(linter_error) => {
-            Err(ValidationError::UnknownError {
-                package: package.to_string(),
-                message: linter_error.to_string(),
-            })
-        }
+        Err(linter_error) => Err(ValidationError::UnknownError {
+            package: package.to_string(),
+            message: linter_error.to_string(),
+        }),
     };
 
     (package.to_string(), validation_result)

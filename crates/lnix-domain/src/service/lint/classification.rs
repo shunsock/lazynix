@@ -108,7 +108,10 @@ mod tests {
     fn test_classify_package_not_found_variant() {
         let stderr = "attribute 'xyz' does not provide";
         let result = classify_nix_eval_error("xyz", stderr);
-        assert!(matches!(result, PackageValidationError::PackageNotFound { .. }));
+        assert!(matches!(
+            result,
+            PackageValidationError::PackageNotFound { .. }
+        ));
     }
 
     #[test]
@@ -152,7 +155,10 @@ mod tests {
     fn test_classify_unknown_error() {
         let stderr = "some random error message";
         let result = classify_nix_eval_error("package", stderr);
-        assert!(matches!(result, PackageValidationError::UnknownError { .. }));
+        assert!(matches!(
+            result,
+            PackageValidationError::UnknownError { .. }
+        ));
         if let PackageValidationError::UnknownError { package, message } = result {
             assert_eq!(package, "package");
             assert!(message.contains("some random error message"));
@@ -163,14 +169,20 @@ mod tests {
     fn test_classify_empty_stderr() {
         let stderr = "";
         let result = classify_nix_eval_error("package", stderr);
-        assert!(matches!(result, PackageValidationError::UnknownError { .. }));
+        assert!(matches!(
+            result,
+            PackageValidationError::UnknownError { .. }
+        ));
     }
 
     #[test]
     fn test_classify_multiline_error() {
         let stderr = "error: some error\nerror: attribute 'pkg' does not provide attribute 'outPath'\nother info";
         let result = classify_nix_eval_error("pkg", stderr);
-        assert!(matches!(result, PackageValidationError::PackageNotFound { .. }));
+        assert!(matches!(
+            result,
+            PackageValidationError::PackageNotFound { .. }
+        ));
     }
 
     #[test]
