@@ -12,3 +12,6 @@ lnix-domain = { workspace = true }
 anyhow = { workspace = true }
 rayon = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }

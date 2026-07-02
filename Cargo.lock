@@ -395,6 +395,7 @@ dependencies = [
  "anyhow",
  "lnix-domain",
  "rayon",
+ "serial_test",
  "thiserror",
 ]
 
