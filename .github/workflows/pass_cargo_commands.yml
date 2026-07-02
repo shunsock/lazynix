@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       cli: ${{ steps.filter.outputs.cli }}
+      app: ${{ steps.filter.outputs.app }}
       domain: ${{ steps.filter.outputs.domain }}
       linter: ${{ steps.filter.outputs.linter }}
       flake-generator: ${{ steps.filter.outputs.flake-generator }}
@@ -37,6 +38,9 @@ jobs:
               - crates/lnix/tests/**/*.rs
               - crates/lnix/templates/**
               - crates/lnix/Cargo.toml
+            app:
+              - crates/lnix-app/src/**/*.rs
+              - crates/lnix-app/Cargo.toml
             domain:
               - crates/lnix-domain/src/**/*.rs
               - crates/lnix-domain/Cargo.toml
@@ -88,6 +92,10 @@ jobs:
         if: needs.detect-changes.outputs.cli == 'true'
         run: cargo clippy -p lnix --all-targets -- --deny warnings
 
+      - name: Run cargo clippy on app
+        if: needs.detect-changes.outputs.app == 'true'
+        run: cargo clippy -p lnix-app --all-targets -- --deny warnings
+
       - name: Run cargo clippy on domain
         if: needs.detect-changes.outputs.domain == 'true'
         run: cargo clippy -p lnix-domain --all-targets -- --deny warnings
@@ -135,6 +143,10 @@ jobs:
       - name: Run cargo test on cli
         if: needs.detect-changes.outputs.cli == 'true'
         run: cargo test -p lnix
+
+      - name: Run cargo test on app
+        if: needs.detect-changes.outputs.app == 'true'
+        run: cargo test -p lnix-app
 
       - name: Run cargo test on domain
         if: needs.detect-changes.outputs.domain == 'true'
