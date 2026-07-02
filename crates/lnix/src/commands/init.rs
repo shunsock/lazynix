@@ -7,8 +7,10 @@ use lnix_flake_generator::LazyNixParser;
 
 use crate::error::{LazyNixError, Result};
 
-const YAML_TEMPLATE: &str = include_str!("../../templates/lazynix.yaml.template");
-const FLAKE_TEMPLATE: &str = include_str!("../../templates/flake.nix.init.template");
+// TODO: consume FsProjectScaffolder instead once the init use-case
+// migrates (#30); until then reach into the infra crate's templates
+const YAML_TEMPLATE: &str = include_str!("../../../lnix-infra/templates/lazynix.yaml.template");
+const FLAKE_TEMPLATE: &str = include_str!("../../../lnix-infra/templates/flake.nix.init.template");
 
 /// Writes the template `lazynix.yaml` and `flake.nix`.
 ///

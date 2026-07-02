@@ -398,6 +398,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnix-infra"
+version = "1.0.0"
+dependencies = [
+ "lnix-domain",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+]
+
+[[package]]
 name = "lnix-linter"
 version = "1.0.0"
 dependencies = [

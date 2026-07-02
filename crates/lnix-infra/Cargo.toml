@@ -1,0 +1,17 @@
+[package]
+name = "lnix-infra"
+description = "Infrastructure layer for LazyNix: filesystem, subprocess, and stdout adapters implementing the domain ports"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+lnix-domain = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

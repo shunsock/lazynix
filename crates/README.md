@@ -17,6 +17,7 @@ Each crate has its own README with more detail.
 | [`lnix-app`](./lnix-app) | library | Application layer: use-cases, dependency bundle (`Deps`), and `ApplicationError`. |
 | [`lnix-domain`](./lnix-domain) | library | Domain layer: value objects, config AST, pure services, and ports. |
 | [`lnix-flake-generator`](./lnix-flake-generator) | library | Parse `lazynix.yaml` and render `flake.nix`. |
+| [`lnix-infra`](./lnix-infra) | library | Infrastructure layer: filesystem, subprocess, and terminal adapters for the domain ports. |
 | [`lnix-linter`](./lnix-linter) | library | Validate packages exist via `nix eval`. |
 | [`lnix-nix-dispatcher`](./lnix-nix-dispatcher) | library | Run `nix` commands as subprocesses. |
 
@@ -48,6 +49,10 @@ It performs no I/O and depends only on `serde` and `thiserror`.
 `lnix-app` is the application layer.
 
 It depends only on `lnix-domain`; the binary starts consuming it when use-cases land.
+
+`lnix-infra` is the infrastructure layer.
+
+It implements the domain ports and also depends only on `lnix-domain`.
 
 `lnix-nix-dispatcher` is independent.
 

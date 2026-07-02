@@ -8,7 +8,7 @@ on:
       - crates/*/src/**/*.rs
       - crates/*/tests/**/*.rs
       - crates/*/Cargo.toml
-      - crates/lnix/templates/**
+      - crates/*/templates/**
       - Cargo.toml
       - Cargo.lock
 
@@ -20,6 +20,7 @@ jobs:
       cli: ${{ steps.filter.outputs.cli }}
       app: ${{ steps.filter.outputs.app }}
       domain: ${{ steps.filter.outputs.domain }}
+      infra: ${{ steps.filter.outputs.infra }}
       linter: ${{ steps.filter.outputs.linter }}
       flake-generator: ${{ steps.filter.outputs.flake-generator }}
       nix-dispatcher: ${{ steps.filter.outputs.nix-dispatcher }}
@@ -36,7 +37,8 @@ jobs:
             cli:
               - crates/lnix/src/**/*.rs
               - crates/lnix/tests/**/*.rs
-              - crates/lnix/templates/**
+              # the binary embeds these via include_str! until #30
+              - crates/lnix-infra/templates/**
               - crates/lnix/Cargo.toml
             app:
               - crates/lnix-app/src/**/*.rs
@@ -44,6 +46,10 @@ jobs:
             domain:
               - crates/lnix-domain/src/**/*.rs
               - crates/lnix-domain/Cargo.toml
+            infra:
+              - crates/lnix-infra/src/**/*.rs
+              - crates/lnix-infra/templates/**
+              - crates/lnix-infra/Cargo.toml
             linter:
               - crates/lnix-linter/src/**/*.rs
               - crates/lnix-linter/tests/**/*.rs
@@ -100,6 +106,10 @@ jobs:
         if: needs.detect-changes.outputs.domain == 'true'
         run: cargo clippy -p lnix-domain --all-targets -- --deny warnings
 
+      - name: Run cargo clippy on infra
+        if: needs.detect-changes.outputs.infra == 'true'
+        run: cargo clippy -p lnix-infra --all-targets -- --deny warnings
+
       - name: Run cargo clippy on linter
         if: needs.detect-changes.outputs.linter == 'true'
         run: cargo clippy -p lnix-linter --all-targets -- --deny warnings
@@ -151,6 +161,10 @@ jobs:
       - name: Run cargo test on domain
         if: needs.detect-changes.outputs.domain == 'true'
         run: cargo test -p lnix-domain
+
+      - name: Run cargo test on infra
+        if: needs.detect-changes.outputs.infra == 'true'
+        run: cargo test -p lnix-infra
 
       - name: Run cargo test on linter
         if: needs.detect-changes.outputs.linter == 'true'
