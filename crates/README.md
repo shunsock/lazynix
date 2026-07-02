@@ -30,33 +30,31 @@ The binary depends on the libraries.
 The libraries depend on `lnix-domain` (or nothing of ours).
 
 ```
-                 lnix  (binary)
-        ┌──────────┼───────────┬───────────────────┐
-        v          v           v                   v
- flake-generator  linter   nix-dispatcher          │
-        │          │                               │
-        └────┬─────┘         lnix-app              │
-             v                  │                  │
-             └──────────────────┼──────────────────┘
-                                v
-                           lnix-domain
+              lnix  (binary)
+               ┌───┴────┐
+               v        v
+           lnix-app  lnix-infra
+               └───┬────┘
+                   v
+              lnix-domain
+
+ flake-generator / linter / nix-dispatcher
+   (orphaned; removal tracked by #32)
 ```
 
 `lnix-domain` is the foundation.
 
 It performs no I/O and depends only on `serde` and `thiserror`.
 
-`lnix-app` is the application layer.
+`lnix-app` is the application layer: use-cases over `&dyn` ports.
 
-It depends only on `lnix-domain`; the binary starts consuming it when use-cases land.
+`lnix-infra` is the infrastructure layer: the port implementations.
 
-`lnix-infra` is the infrastructure layer.
+Both depend only on `lnix-domain`.
 
-It implements the domain ports and also depends only on `lnix-domain`.
+The remaining three crates are no longer used by the binary.
 
-`lnix-nix-dispatcher` is independent.
-
-It does not depend on any other LazyNix crate.
+They stay in the workspace until #32 dismantles them.
 
 ## Why this shape
 

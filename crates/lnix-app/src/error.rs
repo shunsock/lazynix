@@ -6,13 +6,16 @@
 //! bodies on the railway: any failure short-circuits, and the error's
 //! category stays visible in the type.
 
+use lnix_domain::ParseError;
 use lnix_domain::{ConfigError, FlakeError, NixError};
 use thiserror::Error;
 
 /// Union of every failure a use-case can surface.
 ///
 /// `transparent` delegates `Display` to the focused error, so messages
-/// stay specific while `main` can still branch on the category.
+/// stay specific while `main` can still branch on the category. The
+/// remaining variants are use-case-level rules that no single port
+/// owns (scaffold collisions, missing declarations, argument shape).
 #[derive(Error, Debug)]
 pub enum ApplicationError {
     #[error(transparent)]
@@ -23,6 +26,24 @@ pub enum ApplicationError {
 
     #[error(transparent)]
     Nix(#[from] NixError),
+
+    #[error(transparent)]
+    InvalidInput(#[from] ParseError),
+
+    #[error("File already exists: {0}. Use --force to overwrite")]
+    FileExists(String),
+
+    #[error("No test commands defined in lazynix.yaml. Add test attribute to devShell.")]
+    NoTestCommands,
+
+    #[error("No tasks defined in lazynix.yaml")]
+    NoTasksDefined,
+
+    #[error("Task '{0}' not found in lazynix.yaml")]
+    TaskNotFound(String),
+
+    #[error("command arguments cannot be empty")]
+    EmptyRunCommand,
 }
 
 #[cfg(test)]

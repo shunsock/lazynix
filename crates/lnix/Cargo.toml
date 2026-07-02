@@ -11,19 +11,12 @@ path = "src/main.rs"
 
 [dependencies]
 lnix-app = { workspace = true }
-lnix-domain = { workspace = true }
 lnix-infra = { workspace = true }
-lnix-flake-generator = { workspace = true }
-lnix-linter = { workspace = true }
-lnix-nix-dispatcher = { workspace = true }
 
-anyhow = { workspace = true }
 clap = { workspace = true }
-serde_yaml = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
-serial_test = { workspace = true }
+serde_yaml = { workspace = true }
 tempfile = { workspace = true }

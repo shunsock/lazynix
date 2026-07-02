@@ -10,7 +10,9 @@ use lnix_domain::interface::gateway::{
     EvalOutcome, NixEvaluator, NixRunner, ResolvedVersion, VersionResolver,
 };
 use lnix_domain::interface::output::OutputPort;
-use lnix_domain::interface::persistence::{ConfigRepository, EnvFilePresenceChecker, FlakeWriter};
+use lnix_domain::interface::persistence::{
+    ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
+};
 use lnix_domain::{
     Config, ConfigError, FlakeError, NixError, PackageName, PackageVersion, Settings,
 };
@@ -78,9 +80,58 @@ impl EnvFilePresenceChecker for StubEnvChecker {
 }
 
 #[derive(Default)]
+pub(crate) struct MockScaffolder {
+    pub(crate) config_present: bool,
+    pub(crate) flake_present: bool,
+    config_written: RefCell<bool>,
+    flake_written: RefCell<bool>,
+}
+
+impl ProjectScaffolder for MockScaffolder {
+    fn config_exists(&self) -> bool {
+        self.config_present
+    }
+
+    fn flake_exists(&self) -> bool {
+        self.flake_present
+    }
+
+    fn config_path_display(&self) -> String {
+        "./lazynix.yaml".to_string()
+    }
+
+    fn flake_path_display(&self) -> String {
+        "./flake.nix".to_string()
+    }
+
+    fn write_config_template(&self) -> Result<(), ConfigError> {
+        *self.config_written.borrow_mut() = true;
+        Ok(())
+    }
+
+    fn write_flake_template(&self) -> Result<(), FlakeError> {
+        *self.flake_written.borrow_mut() = true;
+        Ok(())
+    }
+}
+
+impl MockScaffolder {
+    pub(crate) fn config_written(&self) -> bool {
+        *self.config_written.borrow()
+    }
+
+    pub(crate) fn flake_written(&self) -> bool {
+        *self.flake_written.borrow()
+    }
+}
+
+#[derive(Default)]
 pub(crate) struct FakeNix {
     develop_calls: RefCell<u32>,
     flake_update_calls: RefCell<u32>,
+    test_calls: RefCell<u32>,
+    run_task_commands: RefCell<Option<Vec<String>>>,
+    develop_command_args: RefCell<Option<Vec<String>>>,
 }
 
 impl NixRunner for FakeNix {
@@ -89,15 +140,18 @@ impl NixRunner for FakeNix {
         Ok(())
     }
 
-    fn develop_command(&self, _args: &[String]) -> Result<i32, NixError> {
+    fn develop_command(&self, args: &[String]) -> Result<i32, NixError> {
+        *self.develop_command_args.borrow_mut() = Some(args.to_vec());
         Ok(0)
     }
 
     fn test(&self) -> Result<i32, NixError> {
+        *self.test_calls.borrow_mut() += 1;
         Ok(0)
     }
 
-    fn run_task(&self, _commands: &[String]) -> Result<i32, NixError> {
+    fn run_task(&self, commands: &[String]) -> Result<i32, NixError> {
+        *self.run_task_commands.borrow_mut() = Some(commands.to_vec());
         Ok(0)
     }
 
@@ -115,16 +169,40 @@ impl FakeNix {
     pub(crate) fn flake_update_calls(&self) -> u32 {
         *self.flake_update_calls.borrow()
     }
+
+    pub(crate) fn test_calls(&self) -> u32 {
+        *self.test_calls.borrow()
+    }
+
+    pub(crate) fn run_task_commands(&self) -> Option<Vec<String>> {
+        self.run_task_commands.borrow().clone()
+    }
+
+    pub(crate) fn develop_command_args(&self) -> Option<Vec<String>> {
+        self.develop_command_args.borrow().clone()
+    }
 }
 
-pub(crate) struct StubEvaluator;
+#[derive(Default)]
+pub(crate) struct StubEvaluator {
+    failing: Vec<String>,
+}
 
 impl NixEvaluator for StubEvaluator {
     fn eval_package(
         &self,
-        _package: &PackageName,
+        package: &PackageName,
         _arch: Option<&str>,
     ) -> Result<EvalOutcome, NixError> {
+        if self.failing.iter().any(|name| name == package.as_str()) {
+            return Ok(EvalOutcome {
+                success: false,
+                stderr: format!(
+                    "error: attribute '{}' does not provide attribute 'outPath'",
+                    package
+                ),
+            });
+        }
         Ok(EvalOutcome {
             success: true,
             stderr: String::new(),
@@ -188,6 +266,7 @@ pub(crate) struct Mocks {
     pub(crate) repo: MockRepo,
     pub(crate) writer: SpyWriter,
     pub(crate) env: StubEnvChecker,
+    pub(crate) scaffolder: MockScaffolder,
     pub(crate) nix: FakeNix,
     pub(crate) nix_eval: StubEvaluator,
     pub(crate) resolver: StubResolver,
@@ -208,6 +287,17 @@ impl Mocks {
         self
     }
 
+    pub(crate) fn with_existing_scaffold(mut self, config: bool, flake: bool) -> Self {
+        self.scaffolder.config_present = config;
+        self.scaffolder.flake_present = flake;
+        self
+    }
+
+    pub(crate) fn with_failing_packages(mut self, names: &[&str]) -> Self {
+        self.nix_eval.failing = names.iter().map(|name| name.to_string()).collect();
+        self
+    }
+
     fn build(config: Option<Config>) -> Self {
         Self {
             repo: MockRepo {
@@ -216,8 +306,9 @@ impl Mocks {
             },
             writer: SpyWriter::default(),
             env: StubEnvChecker { all_present: true },
+            scaffolder: MockScaffolder::default(),
             nix: FakeNix::default(),
-            nix_eval: StubEvaluator,
+            nix_eval: StubEvaluator::default(),
             resolver: StubResolver,
             out: RecordingOutput::default(),
         }
@@ -228,6 +319,7 @@ impl Mocks {
             repo: &self.repo,
             writer: &self.writer,
             env: &self.env,
+            scaffolder: &self.scaffolder,
             nix: &self.nix,
             nix_eval: &self.nix_eval,
             resolver: &self.resolver,

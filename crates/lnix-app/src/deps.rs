@@ -8,7 +8,9 @@
 
 use lnix_domain::interface::gateway::{NixEvaluator, NixRunner, VersionResolver};
 use lnix_domain::interface::output::OutputPort;
-use lnix_domain::interface::persistence::{ConfigRepository, EnvFilePresenceChecker, FlakeWriter};
+use lnix_domain::interface::persistence::{
+    ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
+};
 
 /// Borrowed bundle of every port a use-case may touch.
 ///
@@ -21,6 +23,8 @@ pub struct Deps<'a> {
     pub writer: &'a dyn FlakeWriter,
     /// Checks dotenv files referenced by the config exist.
     pub env: &'a dyn EnvFilePresenceChecker,
+    /// Writes the bundled starter files for `lnix init`.
+    pub scaffolder: &'a dyn ProjectScaffolder,
     /// Runs interactive `nix` commands (develop/test/task/update).
     pub nix: &'a dyn NixRunner,
     /// Evaluates package availability via `nix eval` (capturing).

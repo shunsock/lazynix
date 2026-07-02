@@ -27,4 +27,18 @@ pub trait NixEvaluator {
         package: &PackageName,
         arch: Option<&str>,
     ) -> Result<EvalOutcome, NixError>;
+
+    /// Evaluates many packages; outcomes are index-aligned with the
+    /// input. The default is sequential — implementations may
+    /// parallelize (parallelism is a "how" that stays behind the port).
+    fn eval_packages(
+        &self,
+        packages: &[PackageName],
+        arch: Option<&str>,
+    ) -> Result<Vec<EvalOutcome>, NixError> {
+        packages
+            .iter()
+            .map(|package| self.eval_package(package, arch))
+            .collect()
+    }
 }

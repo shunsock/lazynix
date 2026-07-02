@@ -21,4 +21,4 @@ mod usecase;
 
 pub use deps::Deps;
 pub use error::ApplicationError;
-pub use usecase::develop;
+pub use usecase::{develop, init, lint, run, search, task, test, update};
