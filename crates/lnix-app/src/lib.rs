@@ -9,12 +9,16 @@
 //!   lifting the domain's focused errors via `#[from]` so use-case
 //!   bodies stay on the railway (`?` short-circuits every failure).
 //!
-//! Use-cases land per subcommand (#29, #30); this crate deliberately
-//! ships the skeleton first so app and infra (#28) can build against
-//! the same surface in parallel.
+//! Use-cases live under [`usecase`], one per subcommand, all shaped
+//! `fn(&Deps, ...) -> Result<i32, ApplicationError>`.
 
 mod deps;
 mod error;
+#[cfg(test)]
+mod mocks;
+mod pipeline;
+mod usecase;
 
 pub use deps::Deps;
 pub use error::ApplicationError;
+pub use usecase::develop;

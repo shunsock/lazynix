@@ -8,14 +8,14 @@ use crate::config::task::TaskDef;
 use crate::values::TaskName;
 
 /// Root of the `lazynix.yaml` document.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub dev_shell: DevShell,
 }
 
 /// The `devShell` section: everything needed to render a dev shell flake.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DevShell {
     #[serde(default = "default_allow_unfree")]

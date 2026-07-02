@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::values::EnvVarName;
 
 /// The `env` section: dotenv files and inline environment variables.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Env {
     #[serde(default)]
@@ -14,7 +14,7 @@ pub struct Env {
 }
 
 /// A single environment variable exported into the dev shell.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvVar {
     pub name: EnvVarName,
