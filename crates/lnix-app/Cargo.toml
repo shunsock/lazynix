@@ -1,0 +1,15 @@
+[package]
+name = "lnix-app"
+description = "Application layer for LazyNix: use-cases, dependency bundle, and application errors"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+lnix-domain = { workspace = true }
+
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

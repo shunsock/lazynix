@@ -14,6 +14,7 @@ Each crate has its own README with more detail.
 | Crate | Kind | Responsibility |
 |-------|------|----------------|
 | [`lnix`](./lnix) | binary | CLI entry point and command orchestration. |
+| [`lnix-app`](./lnix-app) | library | Application layer: use-cases, dependency bundle (`Deps`), and `ApplicationError`. |
 | [`lnix-domain`](./lnix-domain) | library | Domain layer: value objects, config AST, pure services, and ports. |
 | [`lnix-flake-generator`](./lnix-flake-generator) | library | Parse `lazynix.yaml` and render `flake.nix`. |
 | [`lnix-linter`](./lnix-linter) | library | Validate packages exist via `nix eval`. |
@@ -33,14 +34,20 @@ The libraries depend on `lnix-domain` (or nothing of ours).
         v          v           v                   v
  flake-generator  linter   nix-dispatcher          │
         │          │                               │
-        └────┬─────┘                               │
-             v                                     │
-          lnix-domain  <───────────────(no dep)──────┘
+        └────┬─────┘         lnix-app              │
+             v                  │                  │
+             └──────────────────┼──────────────────┘
+                                v
+                           lnix-domain
 ```
 
 `lnix-domain` is the foundation.
 
 It performs no I/O and depends only on `serde` and `thiserror`.
+
+`lnix-app` is the application layer.
+
+It depends only on `lnix-domain`; the binary starts consuming it when use-cases land.
 
 `lnix-nix-dispatcher` is independent.
 

@@ -367,6 +367,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lnix-app"
+version = "1.0.0"
+dependencies = [
+ "lnix-domain",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
 name = "lnix-domain"
 version = "1.0.0"
 dependencies = [
