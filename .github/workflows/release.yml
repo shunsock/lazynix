@@ -3,21 +3,28 @@ name: Release
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate branch
         run: |
-          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
             echo "Error: Release must be run from main branch"
             exit 1
           fi
@@ -27,12 +34,13 @@ jobs:
         run: |
           chmod +x scripts/get-version.sh
           VERSION=$(./scripts/get-version.sh)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Version: $VERSION"
 
       - name: Check tag does not exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION=${{ steps.version.outputs.version }}
           if git rev-parse "v$VERSION" >/dev/null 2>&1; then
             echo "Error: Tag v$VERSION already exists"
             exit 1
@@ -42,10 +50,15 @@ jobs:
   build-x86_64-linux:
     needs: prepare-release
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Setup Nix
         uses: ./.github/actions/setup-nix
@@ -62,7 +75,7 @@ jobs:
           ./lnix-x86_64-linux --help
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: lnix-x86_64-linux
           path: lnix-x86_64-linux
@@ -70,10 +83,15 @@ jobs:
   build-aarch64-linux:
     needs: prepare-release
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Setup Nix
         uses: ./.github/actions/setup-nix
@@ -90,7 +108,7 @@ jobs:
           chmod +x lnix-aarch64-linux
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: lnix-aarch64-linux
           path: lnix-aarch64-linux
@@ -98,10 +116,15 @@ jobs:
   build-aarch64-darwin:
     needs: prepare-release
     runs-on: macos-14
+    timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Setup Nix
         uses: ./.github/actions/setup-nix
@@ -118,7 +141,7 @@ jobs:
           ./lnix-aarch64-darwin --help
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: lnix-aarch64-darwin
           path: lnix-aarch64-darwin
@@ -130,15 +153,18 @@ jobs:
       - build-aarch64-linux
       - build-aarch64-darwin
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           path: artifacts
 
@@ -153,15 +179,8 @@ jobs:
           chmod +x release-binaries/*
           ls -lh release-binaries/
 
-      - name: Create and push tag
-        env:
-          VERSION: ${{ needs.prepare-release.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v$VERSION"
-          git push origin "v$VERSION"
-
+      # `gh release create` creates the tag itself when it does not
+      # exist, so no credential-persisting `git push` is needed
       - name: Create GitHub Release
         env:
           VERSION: ${{ needs.prepare-release.outputs.version }}

@@ -8,35 +8,45 @@ on:
       - crates/*/src/**/*.rs
       - crates/*/tests/**/*.rs
       - crates/*/Cargo.toml
-      - crates/lnix/templates/**
+      - crates/*/templates/**
       - Cargo.toml
       - Cargo.lock
+
+permissions:
+  contents: read
 
 jobs:
   detect-changes:
     name: Detect changed crates
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       cli: ${{ steps.filter.outputs.cli }}
       app: ${{ steps.filter.outputs.app }}
       domain: ${{ steps.filter.outputs.domain }}
+      infra: ${{ steps.filter.outputs.infra }}
       linter: ${{ steps.filter.outputs.linter }}
       flake-generator: ${{ steps.filter.outputs.flake-generator }}
       nix-dispatcher: ${{ steps.filter.outputs.nix-dispatcher }}
       any-crate: ${{ steps.filter.outputs.any-crate }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590  # v3
         id: filter
         with:
           filters: |
             cli:
               - crates/lnix/src/**/*.rs
               - crates/lnix/tests/**/*.rs
-              - crates/lnix/templates/**
+              # the binary embeds these via include_str! until #30
+              - crates/lnix-infra/templates/**
               - crates/lnix/Cargo.toml
             app:
               - crates/lnix-app/src/**/*.rs
@@ -44,6 +54,10 @@ jobs:
             domain:
               - crates/lnix-domain/src/**/*.rs
               - crates/lnix-domain/Cargo.toml
+            infra:
+              - crates/lnix-infra/src/**/*.rs
+              - crates/lnix-infra/templates/**
+              - crates/lnix-infra/Cargo.toml
             linter:
               - crates/lnix-linter/src/**/*.rs
               - crates/lnix-linter/tests/**/*.rs
@@ -64,26 +78,32 @@ jobs:
   cargo-fmt-and-clippy:
     name: cargo fmt + clippy
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     needs: detect-changes
     if: needs.detect-changes.outputs.any-crate == 'true'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v27
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b  # v27
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
 
       - name: Run cargo fmt
         run: cargo fmt --all --check
@@ -100,6 +120,10 @@ jobs:
         if: needs.detect-changes.outputs.domain == 'true'
         run: cargo clippy -p lnix-domain --all-targets -- --deny warnings
 
+      - name: Run cargo clippy on infra
+        if: needs.detect-changes.outputs.infra == 'true'
+        run: cargo clippy -p lnix-infra --all-targets -- --deny warnings
+
       - name: Run cargo clippy on linter
         if: needs.detect-changes.outputs.linter == 'true'
         run: cargo clippy -p lnix-linter --all-targets -- --deny warnings
@@ -115,24 +139,31 @@ jobs:
   cargo-test:
     name: cargo test
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
     needs: [detect-changes, cargo-fmt-and-clippy]
     if: needs.detect-changes.outputs.any-crate == 'true'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5
+        with:
+          persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v27
+        uses: cachix/install-nix-action@ba0dd844c9180cbf77aa72a116d6fbc515d0e87b  # v27
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
             experimental-features = nix-command flakes
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
+        with:
+          toolchain: stable
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
 
       # Tests spawn `nix eval` in parallel. Initialize the nix tarball
       # cache serially first, otherwise concurrent evaluations race on
@@ -151,6 +182,10 @@ jobs:
       - name: Run cargo test on domain
         if: needs.detect-changes.outputs.domain == 'true'
         run: cargo test -p lnix-domain
+
+      - name: Run cargo test on infra
+        if: needs.detect-changes.outputs.infra == 'true'
+        run: cargo test -p lnix-infra
 
       - name: Run cargo test on linter
         if: needs.detect-changes.outputs.linter == 'true'
