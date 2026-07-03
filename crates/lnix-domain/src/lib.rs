@@ -5,7 +5,7 @@
 //! - Value objects ([`PackageName`], [`TaskName`], ...) that validate
 //!   their invariants at construction time, so that illegal values are
 //!   unrepresentable everywhere downstream.
-//! - The configuration AST ([`Config`] and friends) that mirrors the
+//! - The configuration AST ([`DevShellDefinition`] and friends) that mirrors the
 //!   structure of `lazynix.yaml`.
 //! - Pure domain services ([`service`]): flake rendering, lint
 //!   classification and reporting, task-command interpolation.
@@ -14,16 +14,16 @@
 //!
 //! This crate performs no I/O and depends only on `serde` / `thiserror`.
 
-mod config;
+mod definition;
 mod error;
 mod values;
 
 pub mod interface;
 pub mod service;
 
-pub use config::{
-    Config, DevShell, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry, Settings, TaskDef,
-    validate_config,
+pub use definition::{
+    DevShell, DevShellDefinition, Env, EnvVar, Package, PackageEntry, PinnedPackageEntry, Settings,
+    TaskDef, validate_config,
 };
 pub use error::{ConfigError, Diagnostic, FlakeError, NixError, ParseError, ValidationError};
 pub use service::flake::render_flake;

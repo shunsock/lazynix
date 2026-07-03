@@ -5,7 +5,7 @@
 //! groups are omitted, and an all-empty list yields a placeholder
 //! comment so the generated flake stays valid.
 
-use crate::{Config, PackageEntry, PinnedPackageEntry};
+use crate::{DevShellDefinition, PackageEntry, PinnedPackageEntry};
 
 use super::pinned;
 
@@ -25,7 +25,10 @@ fn labeled_group(label: &str, body: &str) -> Option<String> {
 }
 
 /// Assembles the full `buildInputs` body from all three package sources.
-pub(super) fn render_build_inputs(config: &Config, resolved: &[&PinnedPackageEntry]) -> String {
+pub(super) fn render_build_inputs(
+    config: &DevShellDefinition,
+    resolved: &[&PinnedPackageEntry],
+) -> String {
     let package = &config.dev_shell.package;
     let groups = [
         labeled_group("Stable", &render_channel("stablePackages", &package.stable)),
@@ -47,7 +50,7 @@ pub(super) fn render_build_inputs(config: &Config, resolved: &[&PinnedPackageEnt
 mod tests {
     use super::*;
 
-    fn config_from_yaml(yaml: &str) -> Config {
+    fn config_from_yaml(yaml: &str) -> DevShellDefinition {
         serde_yaml::from_str(yaml).unwrap()
     }
 

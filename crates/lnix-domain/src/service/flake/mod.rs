@@ -1,4 +1,4 @@
-//! Renders a complete `flake.nix` from a [`Config`].
+//! Renders a complete `flake.nix` from a [`DevShellDefinition`].
 //!
 //! This module orchestrates the section renderers (inputs, `let`
 //! bindings, `buildInputs`, shell hook) and stitches them into the
@@ -10,7 +10,7 @@ mod pinned;
 mod shell_hook;
 mod test_runner;
 
-use crate::Config;
+use crate::DevShellDefinition;
 
 use build_inputs::render_build_inputs;
 use shell_hook::compose_shell_hook;
@@ -53,7 +53,7 @@ fn render_let_section(allow_unfree: bool, resolved: &[&crate::PinnedPackageEntry
 ///
 /// `override_stable_package` replaces the default stable nixpkgs input
 /// when provided (e.g. to pin a different channel or a fork).
-pub fn render_flake(config: &Config, override_stable_package: Option<&str>) -> String {
+pub fn render_flake(config: &DevShellDefinition, override_stable_package: Option<&str>) -> String {
     let allow_unfree = config.dev_shell.allow_unfree;
     let stable_url = override_stable_package.unwrap_or(DEFAULT_STABLE_URL);
     let resolved_pinned = pinned::collect_resolved(config);
@@ -106,7 +106,7 @@ mod tests {
     const BASIC: &str = "devShell:\n  package:\n    stable:\n      - name: bash\n";
 
     fn render_from_yaml(yaml: &str, override_url: Option<&str>) -> String {
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: DevShellDefinition = serde_yaml::from_str(yaml).unwrap();
         render_flake(&config, override_url)
     }
 

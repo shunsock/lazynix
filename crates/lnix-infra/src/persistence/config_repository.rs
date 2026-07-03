@@ -3,7 +3,7 @@
 use std::fs;
 
 use lnix_domain::interface::persistence::ConfigRepository;
-use lnix_domain::{Config, ConfigError, Settings};
+use lnix_domain::{ConfigError, DevShellDefinition, Settings};
 
 use crate::paths::WorkspacePaths;
 
@@ -19,7 +19,7 @@ impl FsConfigRepository {
 }
 
 impl ConfigRepository for FsConfigRepository {
-    fn read_config(&self) -> Result<Config, ConfigError> {
+    fn read_config(&self) -> Result<DevShellDefinition, ConfigError> {
         let path = self.paths.config_file();
         if !path.exists() {
             return Err(ConfigError::NotFound(
@@ -30,7 +30,7 @@ impl ConfigRepository for FsConfigRepository {
         serde_yaml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))
     }
 
-    fn write_config(&self, config: &Config) -> Result<(), ConfigError> {
+    fn write_config(&self, config: &DevShellDefinition) -> Result<(), ConfigError> {
         let text = serde_yaml::to_string(config).map_err(|e| ConfigError::Parse(e.to_string()))?;
         fs::write(self.paths.config_file(), text)?;
         Ok(())

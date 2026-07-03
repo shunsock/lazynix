@@ -5,7 +5,7 @@
 //! `buildInputs` entry. Only packages whose version has already been
 //! resolved to a commit + attribute are emitted.
 
-use crate::{Config, PinnedPackageEntry};
+use crate::{DevShellDefinition, PinnedPackageEntry};
 
 fn normalize_version(version: &str) -> String {
     version.replace('.', "-")
@@ -29,7 +29,7 @@ fn binding_name(entry: &PinnedPackageEntry) -> String {
 
 /// Collects the pinned entries that have been resolved to a concrete
 /// nixpkgs commit and attribute. Unresolved entries are skipped.
-pub(super) fn collect_resolved(config: &Config) -> Vec<&PinnedPackageEntry> {
+pub(super) fn collect_resolved(config: &DevShellDefinition) -> Vec<&PinnedPackageEntry> {
     config
         .dev_shell
         .package

@@ -1,4 +1,4 @@
-use crate::config::dev_shell::Config;
+use crate::definition::dev_shell::DevShellDefinition;
 use crate::error::{Diagnostic, ValidationError};
 
 /// Checks cross-field constraints that value objects cannot express.
@@ -9,7 +9,7 @@ use crate::error::{Diagnostic, ValidationError};
 /// Returns non-fatal findings as [`Diagnostic`] values instead of
 /// printing them, so this function stays free of I/O; the caller
 /// decides how to display them.
-pub fn validate_config(config: &Config) -> Result<Vec<Diagnostic>, ValidationError> {
+pub fn validate_config(config: &DevShellDefinition) -> Result<Vec<Diagnostic>, ValidationError> {
     if let Some(tasks) = &config.dev_shell.task {
         for (task_name, task_def) in tasks {
             if task_def.commands.is_empty() {
@@ -48,7 +48,7 @@ devShell:
       commands:
         - uv sync
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: DevShellDefinition = serde_yaml::from_str(yaml).unwrap();
 
         // Act
         let result = validate_config(&config);
@@ -65,7 +65,7 @@ devShell:
   package:
     stable: []
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: DevShellDefinition = serde_yaml::from_str(yaml).unwrap();
 
         // Act
         let result = validate_config(&config);
@@ -86,7 +86,7 @@ devShell:
     empty-task:
       commands: []
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: DevShellDefinition = serde_yaml::from_str(yaml).unwrap();
 
         // Act
         let result = validate_config(&config);

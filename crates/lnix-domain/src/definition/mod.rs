@@ -11,7 +11,7 @@ mod settings;
 mod task;
 mod validate;
 
-pub use dev_shell::{Config, DevShell};
+pub use dev_shell::{DevShell, DevShellDefinition};
 pub use env::{Env, EnvVar};
 pub use package::{Package, PackageEntry, PinnedPackageEntry};
 pub use settings::Settings;

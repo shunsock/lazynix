@@ -2,15 +2,15 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::env::Env;
-use crate::config::package::Package;
-use crate::config::task::TaskDef;
+use crate::definition::env::Env;
+use crate::definition::package::Package;
+use crate::definition::task::TaskDef;
 use crate::values::TaskName;
 
 /// Root of the `lazynix.yaml` document.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Config {
+pub struct DevShellDefinition {
     pub dev_shell: DevShell,
 }
 
@@ -60,7 +60,7 @@ devShell:
 "#;
 
         // Act
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: DevShellDefinition = serde_yaml::from_str(yaml).unwrap();
 
         // Assert
         assert!(
@@ -90,7 +90,7 @@ devShell:
 "#;
 
         // Act
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: DevShellDefinition = serde_yaml::from_str(yaml).unwrap();
 
         // Assert
         let tasks = config.dev_shell.task.unwrap();
@@ -114,7 +114,7 @@ devShell:
 "#;
 
         // Act
-        let result = serde_yaml::from_str::<Config>(yaml);
+        let result = serde_yaml::from_str::<DevShellDefinition>(yaml);
 
         // Assert
         let message = result.unwrap_err().to_string();

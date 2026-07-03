@@ -27,9 +27,6 @@ jobs:
       app: ${{ steps.filter.outputs.app }}
       domain: ${{ steps.filter.outputs.domain }}
       infra: ${{ steps.filter.outputs.infra }}
-      linter: ${{ steps.filter.outputs.linter }}
-      flake-generator: ${{ steps.filter.outputs.flake-generator }}
-      nix-dispatcher: ${{ steps.filter.outputs.nix-dispatcher }}
       any-crate: ${{ steps.filter.outputs.any-crate }}
     steps:
       - name: Checkout code
@@ -58,16 +55,6 @@ jobs:
               - crates/lnix-infra/src/**/*.rs
               - crates/lnix-infra/templates/**
               - crates/lnix-infra/Cargo.toml
-            linter:
-              - crates/lnix-linter/src/**/*.rs
-              - crates/lnix-linter/tests/**/*.rs
-              - crates/lnix-linter/Cargo.toml
-            flake-generator:
-              - crates/lnix-flake-generator/src/**/*.rs
-              - crates/lnix-flake-generator/Cargo.toml
-            nix-dispatcher:
-              - crates/lnix-nix-dispatcher/src/**/*.rs
-              - crates/lnix-nix-dispatcher/Cargo.toml
             any-crate:
               - crates/*/src/**/*.rs
               - crates/*/tests/**/*.rs
@@ -124,18 +111,6 @@ jobs:
         if: needs.detect-changes.outputs.infra == 'true'
         run: cargo clippy -p lnix-infra --all-targets -- --deny warnings
 
-      - name: Run cargo clippy on linter
-        if: needs.detect-changes.outputs.linter == 'true'
-        run: cargo clippy -p lnix-linter --all-targets -- --deny warnings
-
-      - name: Run cargo clippy on flake-generator
-        if: needs.detect-changes.outputs.flake-generator == 'true'
-        run: cargo clippy -p lnix-flake-generator --all-targets -- --deny warnings
-
-      - name: Run cargo clippy on nix-dispatcher
-        if: needs.detect-changes.outputs.nix-dispatcher == 'true'
-        run: cargo clippy -p lnix-nix-dispatcher --all-targets -- --deny warnings
-
   cargo-test:
     name: cargo test
     runs-on: ubuntu-24.04
@@ -186,15 +161,3 @@ jobs:
       - name: Run cargo test on infra
         if: needs.detect-changes.outputs.infra == 'true'
         run: cargo test -p lnix-infra
-
-      - name: Run cargo test on linter
-        if: needs.detect-changes.outputs.linter == 'true'
-        run: cargo test -p lnix-linter
-
-      - name: Run cargo test on flake-generator
-        if: needs.detect-changes.outputs.flake-generator == 'true'
-        run: cargo test -p lnix-flake-generator
-
-      - name: Run cargo test on nix-dispatcher
-        if: needs.detect-changes.outputs.nix-dispatcher == 'true'
-        run: cargo test -p lnix-nix-dispatcher
