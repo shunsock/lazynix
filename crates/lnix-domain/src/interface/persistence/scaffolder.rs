@@ -5,8 +5,8 @@ use crate::error::{ConfigError, FlakeError};
 /// Writes the bundled starter files for `lnix init`.
 ///
 /// Templates are raw text with comments, so they bypass the typed
-/// [`crate::Config`] round-trip on purpose: serializing a parsed
-/// `Config` back out would strip the guidance comments users edit.
+/// [`crate::DevShellDefinition`] round-trip on purpose: serializing a parsed
+/// `DevShellDefinition` back out would strip the guidance comments users edit.
 pub trait ProjectScaffolder {
     /// Whether a `lazynix.yaml` already exists at the target location.
     fn config_exists(&self) -> bool;

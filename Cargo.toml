@@ -3,10 +3,7 @@ members = [
     "crates/lnix",
     "crates/lnix-app",
     "crates/lnix-domain",
-    "crates/lnix-flake-generator",
     "crates/lnix-infra",
-    "crates/lnix-linter",
-    "crates/lnix-nix-dispatcher",
 ]
 resolver = "2"
 
@@ -20,13 +17,9 @@ repository = "https://github.com/shunsock/lazynix"
 # Internal crates
 lnix-app = { path = "crates/lnix-app" }
 lnix-domain = { path = "crates/lnix-domain" }
-lnix-flake-generator = { path = "crates/lnix-flake-generator" }
 lnix-infra = { path = "crates/lnix-infra" }
-lnix-linter = { path = "crates/lnix-linter" }
-lnix-nix-dispatcher = { path = "crates/lnix-nix-dispatcher" }
 
 # External crates
-anyhow = "1.0"
 assert_cmd = "2.0"
 clap = { version = "4.5", features = ["derive", "cargo", "env"] }
 predicates = "3.1"
@@ -34,6 +27,5 @@ rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-serial_test = "3"
 tempfile = "3.15"
 thiserror = "1.0"

@@ -10,7 +10,7 @@ It defines four things.
 
 First, value objects such as `PackageName` and `RegistryUrl`.
 
-Second, the `Config` AST that mirrors `lazynix.yaml`.
+Second, the `DevShellDefinition` AST that mirrors `lazynix.yaml`.
 
 Third, pure services under `service/`: flake rendering, lint classification and reporting, task-command interpolation.
 
@@ -73,7 +73,7 @@ assert!("pkg; rm -rf /".parse::<PackageName>().is_err());
 Parsing a config rejects an invalid task name before any flake is generated.
 
 ```rust,ignore
-use lnix_domain::Config;
+use lnix_domain::DevShellDefinition;
 
 let yaml = r#"
 devShell:
@@ -86,5 +86,5 @@ devShell:
         - echo hi
 "#;
 
-assert!(serde_yaml::from_str::<Config>(yaml).is_err());
+assert!(serde_yaml::from_str::<DevShellDefinition>(yaml).is_err());
 ```

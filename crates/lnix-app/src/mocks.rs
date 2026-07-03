@@ -14,28 +14,28 @@ use lnix_domain::interface::persistence::{
     ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
 };
 use lnix_domain::{
-    Config, ConfigError, FlakeError, NixError, PackageName, PackageVersion, Settings,
+    ConfigError, DevShellDefinition, FlakeError, NixError, PackageName, PackageVersion, Settings,
 };
 
 use crate::deps::Deps;
 
-pub(crate) fn config_from_yaml(yaml: &str) -> Config {
+pub(crate) fn config_from_yaml(yaml: &str) -> DevShellDefinition {
     serde_yaml::from_str(yaml).unwrap()
 }
 
 pub(crate) struct MockRepo {
-    config: Option<Config>,
-    persisted: RefCell<Option<Config>>,
+    config: Option<DevShellDefinition>,
+    persisted: RefCell<Option<DevShellDefinition>>,
 }
 
 impl ConfigRepository for MockRepo {
-    fn read_config(&self) -> Result<Config, ConfigError> {
+    fn read_config(&self) -> Result<DevShellDefinition, ConfigError> {
         self.config
             .clone()
             .ok_or_else(|| ConfigError::NotFound(".".to_string()))
     }
 
-    fn write_config(&self, config: &Config) -> Result<(), ConfigError> {
+    fn write_config(&self, config: &DevShellDefinition) -> Result<(), ConfigError> {
         *self.persisted.borrow_mut() = Some(config.clone());
         Ok(())
     }
@@ -46,7 +46,7 @@ impl ConfigRepository for MockRepo {
 }
 
 impl MockRepo {
-    pub(crate) fn persisted_config(&self) -> Option<Config> {
+    pub(crate) fn persisted_config(&self) -> Option<DevShellDefinition> {
         self.persisted.borrow().clone()
     }
 }
@@ -274,7 +274,7 @@ pub(crate) struct Mocks {
 }
 
 impl Mocks {
-    pub(crate) fn with_config(config: Config) -> Self {
+    pub(crate) fn with_config(config: DevShellDefinition) -> Self {
         Self::build(Some(config))
     }
 
@@ -298,7 +298,7 @@ impl Mocks {
         self
     }
 
-    fn build(config: Option<Config>) -> Self {
+    fn build(config: Option<DevShellDefinition>) -> Self {
         Self {
             repo: MockRepo {
                 config,

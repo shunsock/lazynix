@@ -4,7 +4,7 @@
 //! vars, then shell aliases, then the user's own hook lines, and
 //! finally the test-runner block (when in test mode).
 
-use crate::{Config, EnvVar};
+use crate::{DevShellDefinition, EnvVar};
 
 use super::path::resolve_path;
 use super::test_runner::render_test_execution;
@@ -76,7 +76,7 @@ fi"#,
 }
 
 /// Assembles the full `shellHook` body in fragment order.
-pub(super) fn compose_shell_hook(config: &Config) -> String {
+pub(super) fn compose_shell_hook(config: &DevShellDefinition) -> String {
     let dev_shell = &config.dev_shell;
     let env = dev_shell.env.as_ref();
 
@@ -101,7 +101,7 @@ pub(super) fn compose_shell_hook(config: &Config) -> String {
 mod tests {
     use super::*;
 
-    fn config_from_yaml(yaml: &str) -> Config {
+    fn config_from_yaml(yaml: &str) -> DevShellDefinition {
         serde_yaml::from_str(yaml).unwrap()
     }
 

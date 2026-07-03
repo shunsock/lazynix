@@ -5,7 +5,7 @@
 //! each use-case only adds its own tail (entering the shell, running
 //! tests, executing a command).
 
-use lnix_domain::{Config, render_flake};
+use lnix_domain::{DevShellDefinition, render_flake};
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
@@ -13,7 +13,7 @@ use crate::error::ApplicationError;
 /// A validated config together with the optional registry override that
 /// settings supplied, ready to be rendered into a flake.
 pub(crate) struct LoadedConfig {
-    pub(crate) config: Config,
+    pub(crate) config: DevShellDefinition,
     override_url: Option<String>,
 }
 
@@ -45,7 +45,7 @@ pub(crate) fn load_config(d: &Deps) -> Result<LoadedConfig, ApplicationError> {
 }
 
 /// Fails when a dotenv file referenced by the config does not exist.
-fn validate_env_files(d: &Deps, config: &Config) -> Result<(), ApplicationError> {
+fn validate_env_files(d: &Deps, config: &DevShellDefinition) -> Result<(), ApplicationError> {
     let Some(env) = &config.dev_shell.env else {
         return Ok(());
     };
@@ -59,7 +59,10 @@ fn validate_env_files(d: &Deps, config: &Config) -> Result<(), ApplicationError>
 
 /// Resolves pinned package versions and persists any newly resolved
 /// entries back to `lazynix.yaml`.
-fn resolve_pinned_packages(d: &Deps, config: &mut Config) -> Result<(), ApplicationError> {
+fn resolve_pinned_packages(
+    d: &Deps,
+    config: &mut DevShellDefinition,
+) -> Result<(), ApplicationError> {
     let mut resolved_any = false;
     for entry in &mut config.dev_shell.package.pinned {
         if entry.resolved_commit.is_some() && entry.resolved_attr.is_some() {

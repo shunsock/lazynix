@@ -2,8 +2,7 @@
 
 LazyNix is a Cargo workspace.
 
-The layout follows [astral-sh/uv](https://github.com/astral-sh/uv/tree/main/crates):
-one binary crate on top, with focused library crates underneath.
+The layout follows clean architecture: one crate per layer, one binary on top.
 
 This file is the index.
 
@@ -13,21 +12,14 @@ Each crate has its own README with more detail.
 
 | Crate | Kind | Responsibility |
 |-------|------|----------------|
-| [`lnix`](./lnix) | binary | CLI entry point and command orchestration. |
+| [`lnix`](./lnix) | binary | CLI parsing (clap) and the composition root that wires adapters. |
 | [`lnix-app`](./lnix-app) | library | Application layer: use-cases, dependency bundle (`Deps`), and `ApplicationError`. |
-| [`lnix-domain`](./lnix-domain) | library | Domain layer: value objects, config AST, pure services, and ports. |
-| [`lnix-flake-generator`](./lnix-flake-generator) | library | Parse `lazynix.yaml` and render `flake.nix`. |
+| [`lnix-domain`](./lnix-domain) | library | Domain layer: value objects, the `DevShellDefinition` AST, pure services, and ports. |
 | [`lnix-infra`](./lnix-infra) | library | Infrastructure layer: filesystem, subprocess, and terminal adapters for the domain ports. |
-| [`lnix-linter`](./lnix-linter) | library | Validate packages exist via `nix eval`. |
-| [`lnix-nix-dispatcher`](./lnix-nix-dispatcher) | library | Run `nix` commands as subprocesses. |
 
 ## Dependency direction
 
-Dependencies flow in one direction.
-
-The binary depends on the libraries.
-
-The libraries depend on `lnix-domain` (or nothing of ours).
+Dependencies flow inward, in one direction.
 
 ```
               lnix  (binary)
@@ -37,14 +29,13 @@ The libraries depend on `lnix-domain` (or nothing of ours).
                └───┬────┘
                    v
               lnix-domain
-
- flake-generator / linter / nix-dispatcher
-   (orphaned; removal tracked by #32)
 ```
 
-`lnix-domain` is the foundation.
+`lnix-domain` is the innermost layer.
 
 It performs no I/O and depends only on `serde` and `thiserror`.
+
+It owns the ports (interfaces) that the outer layers implement.
 
 `lnix-app` is the application layer: use-cases over `&dyn` ports.
 
@@ -52,20 +43,18 @@ It performs no I/O and depends only on `serde` and `thiserror`.
 
 Both depend only on `lnix-domain`.
 
-The remaining three crates are no longer used by the binary.
-
-They stay in the workspace until #32 dismantles them.
+The binary constructs the adapters once and lends them to use-cases.
 
 ## Why this shape
 
-Domain types live in one place (`lnix-domain`).
+The crate boundary is the layer boundary.
 
-So validation rules are not duplicated across crates.
+So a dependency in the wrong direction is a compile error, not a review comment.
 
-Each library has a single responsibility.
+Use-cases touch I/O only through ports.
 
-So a change to how Nix is invoked does not touch how YAML is parsed.
+So every command is unit-tested with mocks: no filesystem, no `nix`, no terminal.
 
-The dependency graph has no cycles.
+All `nix` subprocess execution lives in one place (`lnix-infra`'s gateways).
 
-So each crate can be understood, tested, and changed on its own.
+So how `nix` is invoked can change without touching what commands do.
