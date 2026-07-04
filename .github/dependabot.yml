@@ -1,0 +1,39 @@
+# MANAGED BY shunsock/github_central — このファイルは gh-infra で rust-cli グループへ配信される。
+# 変更は github_central 側の files/rust_cli_repository/dependabot.yml で行うこと。
+# 直接編集しても同期で上書きされうる。
+#
+# cargo と github-actions を監視し、minor / patch は group 化して auto-merge 対象にする。
+# major は group に載らず個別 PR となり、auto-merge されず人間のレビューに回る。
+# cooldown: リリース直後の不安定・供給網リスクを避けるため minor/patch は 7日、
+# 破壊的変更を含みうる major は 14日 寝かせてから PR を作る。
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      minor:
+        update-types:
+          - "minor"
+      patch:
+        update-types:
+          - "patch"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    # github-actions は semver 粒度の cooldown (semver-major-days 等) を
+    # サポートしないため default-days のみ指定する。
+    cooldown:
+      default-days: 7
+    groups:
+      minor:
+        update-types:
+          - "minor"
+      patch:
+        update-types:
+          - "patch"
