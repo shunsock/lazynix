@@ -1,16 +1,13 @@
 name: Cargo Commands CI
 
+# workflow-level の paths filter は使わない。rust 無関係な PR (github-actions 更新等) で
+# workflow 自体が発火せず、required status check が「待ち」で詰まるのを避けるため。
+# 変更範囲の判定は detect-changes ジョブ (dorny/paths-filter) が内部で行い、
+# rust に無関係な PR では cargo ジョブが skip される (skip された required check は passing 扱い)。
 on:
   pull_request:
     branches:
       - main
-    paths:
-      - crates/*/src/**/*.rs
-      - crates/*/tests/**/*.rs
-      - crates/*/Cargo.toml
-      - crates/*/templates/**
-      - Cargo.toml
-      - Cargo.lock
 
 permissions:
   contents: read
