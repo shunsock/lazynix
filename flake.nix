@@ -46,7 +46,7 @@
           src = ./.;
           filter = path: type:
             (craneLib.filterCargoSources path type)
-            || (builtins.match ".*crates/lnix/templates/.*" path != null)
+            || (builtins.match ".*crates/lnix-infra/templates/.*" path != null)
             || (builtins.match ".*/README\.md$" path != null);
         };
 
@@ -104,7 +104,7 @@
           src = ./.;
           filter = path: type:
             (craneLib.filterCargoSources path type)
-            || (builtins.match ".*crates/lnix/templates/.*" path != null)
+            || (builtins.match ".*crates/lnix-infra/templates/.*" path != null)
             || (builtins.match ".*/README\.md$" path != null);
         };
 
