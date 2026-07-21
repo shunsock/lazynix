@@ -4,7 +4,13 @@ devShell:
     stable:
       - name: hello
     unstable: []
+    # Optional: Pin a package to a specific version (resolved via nix-versions)
+    # Each entry needs `name` and `version`, NOT a single string like `cowsay_3.0.0`.
+    # Find available versions with: lnix search <name>
+    # To use: replace `pinned: []` below with the commented entries (remove the # marks)
     pinned: []
+    #   - name: go
+    #     version: "1.21.13"
   shellHook:
     - "echo Welcome to LazyNix DevShell!"
 
