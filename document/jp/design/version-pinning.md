@@ -242,7 +242,7 @@ $ lnix search go --version ">=1.20" --json --one
 
 - `lnix develop`: pinned パッケージの解決ステップを追加
 - `lnix init`: テンプレートを新スキーマに更新
-- `lnix lint`: pinned パッケージのバリデーションを追加
+- `lnix lint`: pinned パッケージも `nix eval` で name を検証し、未解決の pinned エントリはバージョン解決の可否も検証する (読み取り専用: `lazynix.yaml` は書き換えない)
 
 ---
 
@@ -271,7 +271,9 @@ $ lnix search go --version ">=1.20" --json --one
 
 ### `linter`
 
-- pinned パッケージの lint 対応 (nix eval で存在確認)
+- pinned パッケージの name を `nix eval` で検証 (stable/unstable と同じ経路)
+- 未解決の pinned エントリは resolver でバージョン解決の可否を確認する
+- 読み取り専用: `lazynix.yaml` への書き戻しは行わない
 
 ---
 
