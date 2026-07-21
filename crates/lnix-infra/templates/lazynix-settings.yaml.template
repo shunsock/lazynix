@@ -43,7 +43,7 @@
 #
 # - This file is OPTIONAL. LazyNix works without it using sensible defaults.
 # - Invalid URLs will produce validation errors when running lnix commands.
-# - Changes take effect when you run: lnix develop, lnix build, or lnix run
+# - Changes take effect when you run: lnix develop, lnix generate, or lnix run
 # - The generated flake.nix will reflect your override setting.
 # - Add lazynix-settings.yaml to .gitignore if settings are user-specific.
 #
