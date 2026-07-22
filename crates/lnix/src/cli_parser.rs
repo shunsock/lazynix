@@ -36,6 +36,9 @@ pub enum Commands {
     /// Update flake.lock without entering development shell
     Update,
 
+    /// Generate flake.nix from lazynix.yaml without entering the shell
+    Generate,
+
     /// Generate flake.nix from lazynix.yaml and enter nix develop shell
     Develop {
         /// Update flake.lock before entering the shell

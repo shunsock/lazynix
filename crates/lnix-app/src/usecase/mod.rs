@@ -5,6 +5,7 @@
 //! rail, a categorized failure otherwise.
 
 mod develop;
+mod generate;
 mod init;
 mod lint;
 mod run;
@@ -14,6 +15,7 @@ mod test;
 mod update;
 
 pub use develop::develop;
+pub use generate::generate;
 pub use init::init;
 pub use lint::lint;
 pub use run::run;

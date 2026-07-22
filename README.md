@@ -153,6 +153,16 @@ LazyNix will automatically:
 3. 🔒 Update `flake.lock` with pinned dependencies (with `--update`)
 4. 🚀 Enter the Nix development shell with all specified packages
 
+### 📝 Generate `flake.nix` Only
+
+Regenerate `flake.nix` from `lazynix.yaml` without entering a shell or running any commands:
+
+```bash
+lnix generate
+```
+
+Handy for CI validation, applying edits to `lazynix.yaml`, or preparing to migrate to Pure Nix. When no pinned packages are configured, this runs fully offline without invoking Nix.
+
 ## Configuration
 
 ### Custom Config Directory
@@ -218,8 +228,9 @@ override-stable-package: "github:myorg/nixpkgs/custom-branch"
 
 When you need advanced Nix features, migration is seamless. LazyNix generates a standard `flake.nix`, so:
 
-1. 🗑️ Delete `lazynix.yaml`
-2. ✏️ Continue editing `flake.nix` directly
+1. ⚙️ Run `lnix generate` to produce the latest `flake.nix` from `lazynix.yaml`
+2. 🗑️ Delete `lazynix.yaml`
+3. ✏️ Continue editing `flake.nix` directly
 
 That's all! Your development environment keeps working without any changes.
 
