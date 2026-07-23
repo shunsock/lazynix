@@ -21,6 +21,17 @@ pub enum PackageValidationError {
         arch: String,
     },
 
+    /// Pinned version could not be resolved via nix-versions
+    #[error("Version '{version}' of package '{package}' could not be resolved: {message}")]
+    VersionNotFound {
+        /// Name of the package whose version failed to resolve
+        package: String,
+        /// The requested version specifier
+        version: String,
+        /// Why resolution failed (registry stderr or parse detail)
+        message: String,
+    },
+
     /// Unknown error occurred during validation
     #[error("Unknown error for package '{package}': {message}")]
     UnknownError {
