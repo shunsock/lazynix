@@ -10,7 +10,7 @@ pub(super) fn format_success_message(count: usize) -> String {
 
 /// Renders every non-empty error category into one combined report.
 pub(super) fn format_error_sections(errors: &[PackageValidationError]) -> String {
-    let (not_found, arch_unsupported, unknown) = group_errors(errors);
+    let (not_found, arch_unsupported, version_not_found, unknown) = group_errors(errors);
 
     let mut output = String::new();
     if !not_found.is_empty() {
@@ -19,6 +19,10 @@ pub(super) fn format_error_sections(errors: &[PackageValidationError]) -> String
     }
     if !arch_unsupported.is_empty() {
         output.push_str(&format_architecture_unsupported(&arch_unsupported));
+        output.push('\n');
+    }
+    if !version_not_found.is_empty() {
+        output.push_str(&format_version_not_found(&version_not_found));
         output.push('\n');
     }
     if !unknown.is_empty() {
@@ -30,6 +34,7 @@ pub(super) fn format_error_sections(errors: &[PackageValidationError]) -> String
 type ErrorGroups<'a> = (
     Vec<&'a str>,
     Vec<(&'a str, &'a str)>,
+    Vec<(&'a str, &'a str, &'a str)>,
     Vec<(&'a str, &'a str)>,
 );
 
@@ -37,6 +42,7 @@ type ErrorGroups<'a> = (
 fn group_errors(errors: &[PackageValidationError]) -> ErrorGroups<'_> {
     let mut not_found = Vec::new();
     let mut arch_unsupported = Vec::new();
+    let mut version_not_found = Vec::new();
     let mut unknown = Vec::new();
 
     for error in errors {
@@ -45,13 +51,18 @@ fn group_errors(errors: &[PackageValidationError]) -> ErrorGroups<'_> {
             PackageValidationError::ArchitectureUnsupported { package, arch } => {
                 arch_unsupported.push((package.as_str(), arch.as_str()))
             }
+            PackageValidationError::VersionNotFound {
+                package,
+                version,
+                message,
+            } => version_not_found.push((package.as_str(), version.as_str(), message.as_str())),
             PackageValidationError::UnknownError { package, message } => {
                 unknown.push((package.as_str(), message.as_str()))
             }
         }
     }
 
-    (not_found, arch_unsupported, unknown)
+    (not_found, arch_unsupported, version_not_found, unknown)
 }
 
 fn format_package_not_found(packages: &[&str]) -> String {
@@ -84,6 +95,17 @@ fn format_architecture_unsupported(packages: &[(&str, &str)]) -> String {
         }
         output.push_str("\nSee: https://search.nixos.org/packages\n");
     }
+    output
+}
+
+fn format_version_not_found(entries: &[(&str, &str, &str)]) -> String {
+    let mut output = String::new();
+    output.push_str("LazyNix Linting Error: VERSION_NOT_FOUND\n");
+    output.push_str("LazyNix could not resolve pinned version via nix-versions\n\n");
+    for (pkg, version, message) in entries {
+        output.push_str(&format!("- {} @ {}: {}\n", pkg, version, message));
+    }
+    output.push_str("\nSee: run `lnix search <package>` or https://github.com/vic/nix-versions\n");
     output
 }
 
@@ -179,5 +201,33 @@ mod tests {
         assert!(output.contains("UNKNOWN_ERROR"));
         assert!(output.contains("somepkg"));
         assert!(output.contains("strange error"));
+    }
+
+    #[test]
+    fn version_not_found_lists_each_package_version_and_message() {
+        // Arrange
+        let errors = vec![
+            PackageValidationError::VersionNotFound {
+                package: "go".to_string(),
+                version: "9.9.9".to_string(),
+                message: "no matching commit found".to_string(),
+            },
+            PackageValidationError::VersionNotFound {
+                package: "node".to_string(),
+                version: "0.0.0".to_string(),
+                message: "not in registry".to_string(),
+            },
+        ];
+
+        // Act
+        let output = format_error_sections(&errors);
+
+        // Assert
+        assert!(output.contains("VERSION_NOT_FOUND"), "got: {output}");
+        assert!(output.contains("go"), "got: {output}");
+        assert!(output.contains("9.9.9"), "got: {output}");
+        assert!(output.contains("no matching commit found"), "got: {output}");
+        assert!(output.contains("node"), "got: {output}");
+        assert!(output.contains("0.0.0"), "got: {output}");
     }
 }

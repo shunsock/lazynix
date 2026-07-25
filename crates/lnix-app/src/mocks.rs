@@ -210,14 +210,29 @@ impl NixEvaluator for StubEvaluator {
     }
 }
 
-pub(crate) struct StubResolver;
+#[derive(Default)]
+pub(crate) struct StubResolver {
+    failing: Vec<(String, String)>,
+    resolve_calls: RefCell<Vec<String>>,
+    infra_failure: bool,
+}
 
 impl VersionResolver for StubResolver {
     fn resolve(
         &self,
-        _name: &PackageName,
-        _version: &PackageVersion,
+        name: &PackageName,
+        version: &PackageVersion,
     ) -> Result<ResolvedVersion, NixError> {
+        self.resolve_calls.borrow_mut().push(name.to_string());
+        if self.infra_failure {
+            return Err(NixError::NoExitCode);
+        }
+        if let Some((_, message)) = self.failing.iter().find(|(n, _)| n == name.as_str()) {
+            return Err(NixError::VersionResolution {
+                spec: format!("{}@{}", name, version),
+                message: message.clone(),
+            });
+        }
         Ok(ResolvedVersion {
             commit: "e607cb5".to_string(),
             attr: "go_1_21".to_string(),
@@ -232,6 +247,12 @@ impl VersionResolver for StubResolver {
         _one: bool,
     ) -> Result<String, NixError> {
         Ok("go 1.21.13 nixpkgs/e607cb5#go_1_21".to_string())
+    }
+}
+
+impl StubResolver {
+    pub(crate) fn resolve_calls(&self) -> Vec<String> {
+        self.resolve_calls.borrow().clone()
     }
 }
 
@@ -298,6 +319,19 @@ impl Mocks {
         self
     }
 
+    pub(crate) fn with_failing_versions(mut self, entries: &[(&str, &str)]) -> Self {
+        self.resolver.failing = entries
+            .iter()
+            .map(|(name, message)| (name.to_string(), message.to_string()))
+            .collect();
+        self
+    }
+
+    pub(crate) fn with_resolver_infra_failure(mut self) -> Self {
+        self.resolver.infra_failure = true;
+        self
+    }
+
     fn build(config: Option<DevShellDefinition>) -> Self {
         Self {
             repo: MockRepo {
@@ -309,7 +343,7 @@ impl Mocks {
             scaffolder: MockScaffolder::default(),
             nix: FakeNix::default(),
             nix_eval: StubEvaluator::default(),
-            resolver: StubResolver,
+            resolver: StubResolver::default(),
             out: RecordingOutput::default(),
         }
     }
