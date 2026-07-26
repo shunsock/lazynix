@@ -4,11 +4,12 @@ use std::collections::HashSet;
 
 use lnix_domain::{
     NixError, PackageName, PackageValidationError, PinnedPackageEntry, ValidationResult,
-    classify_nix_eval_error, format_validation_result, format_validation_result_verbose,
+    classify_nix_eval_error,
 };
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 
 /// Result of verifying pinned entries against the version resolver.
 /// `failed_names` lets the caller exclude broken packages from the
@@ -38,7 +39,7 @@ pub fn lint(d: &Deps, verbose: bool, arch: Option<&str>) -> Result<i32, Applicat
     let packages: Vec<PackageName> = channel_names.chain(pinned_names).collect();
 
     if packages.is_empty() {
-        d.out.info("No packages to validate.");
+        d.reporter.report(&UseCaseEvent::NoPackagesToValidate);
         return Ok(0);
     }
 
@@ -65,14 +66,11 @@ pub fn lint(d: &Deps, verbose: bool, arch: Option<&str>) -> Result<i32, Applicat
         errors,
     };
 
-    let report = if verbose {
-        format_validation_result_verbose(&result)
-    } else {
-        format_validation_result(&result)
-    };
-    d.out.info(report.trim_end());
+    let exit_code = if result.errors.is_empty() { 0 } else { 1 };
+    d.reporter
+        .report(&UseCaseEvent::ValidationReport { result, verbose });
 
-    Ok(if result.errors.is_empty() { 0 } else { 1 })
+    Ok(exit_code)
 }
 
 /// Verifies pinned entries whose commit/attr are not yet cached and
@@ -121,200 +119,192 @@ fn verify_pinned_versions(
 mod tests {
     use super::*;
     use crate::mocks::*;
+    use lnix_domain::PackageValidationError;
 
     #[test]
     fn empty_package_list_succeeds_without_evaluating() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml("devShell:\n  package:\n    stable: []\n"));
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert!(
-            m.out
-                .infos()
-                .contains(&"No packages to validate.".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::NoPackagesToValidate))
         );
     }
 
     #[test]
     fn all_valid_packages_report_success_with_count() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: hello\n    unstable:\n      - name: vim\n",
         ));
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        assert!(
-            m.out
-                .infos()
-                .iter()
-                .any(|line| line.contains("✓") && line.contains("2 package(s)"))
-        );
+        let report = m
+            .reporter
+            .events()
+            .into_iter()
+            .find_map(|e| match e {
+                UseCaseEvent::ValidationReport { result, .. } => Some(result),
+                _ => None,
+            })
+            .expect("expected ValidationReport event");
+        assert_eq!(report.valid_packages.len(), 2);
+        assert!(report.errors.is_empty());
     }
 
     #[test]
     fn failing_package_yields_exit_1_and_categorized_report() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: hello\n      - name: ghost-pkg\n",
         ))
         .with_failing_packages(&["ghost-pkg"]);
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 1);
-        let report = m.out.infos().join("\n");
-        assert!(report.contains("PACKAGE_NOT_FOUND"));
-        assert!(report.contains("ghost-pkg"));
+        let report = m
+            .reporter
+            .events()
+            .into_iter()
+            .find_map(|e| match e {
+                UseCaseEvent::ValidationReport { result, .. } => Some(result),
+                _ => None,
+            })
+            .expect("expected ValidationReport event");
+        assert!(report.errors.iter().any(|err| matches!(
+            err,
+            PackageValidationError::PackageNotFound { package } if package == "ghost-pkg"
+        )));
+    }
+
+    fn extract_report(m: &Mocks) -> ValidationResult {
+        m.reporter
+            .events()
+            .into_iter()
+            .find_map(|e| match e {
+                UseCaseEvent::ValidationReport { result, .. } => Some(result),
+                _ => None,
+            })
+            .expect("expected ValidationReport event")
     }
 
     #[test]
     fn pinned_only_config_is_validated_not_skipped() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        let infos = m.out.infos();
-        assert!(!infos.contains(&"No packages to validate.".to_string()));
         assert!(
-            infos
+            !m.reporter
+                .events()
                 .iter()
-                .any(|line| line.contains("✓") && line.contains("1 package(s)"))
+                .any(|e| matches!(e, UseCaseEvent::NoPackagesToValidate))
         );
+        let report = extract_report(&m);
+        assert_eq!(report.valid_packages.len(), 1);
+        assert!(report.errors.is_empty());
     }
 
     #[test]
     fn pinned_name_that_does_not_exist_reports_categorized_error() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: ghost-pkg\n        version: \"9.9.9\"\n",
         ))
         .with_failing_packages(&["ghost-pkg"]);
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 1);
-        let report = m.out.infos().join("\n");
-        assert!(report.contains("PACKAGE_NOT_FOUND"));
-        assert!(report.contains("ghost-pkg"));
+        let report = extract_report(&m);
+        assert!(report.errors.iter().any(|err| matches!(
+            err,
+            PackageValidationError::PackageNotFound { package } if package == "ghost-pkg"
+        )));
     }
 
     #[test]
     fn stable_and_pinned_are_counted_together_on_success() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: hello\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        let infos = m.out.infos();
-        assert!(
-            infos
-                .iter()
-                .any(|line| line.contains("✓") && line.contains("2 package(s)"))
-        );
+        let report = extract_report(&m);
+        assert_eq!(report.valid_packages.len(), 2);
+        assert!(report.errors.is_empty());
     }
 
     #[test]
     fn cached_pinned_entry_skips_resolver_call() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n        resolvedCommit: \"e607cb5\"\n        resolvedAttr: \"go_1_21\"\n",
         ));
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert!(m.resolver.resolve_calls().is_empty());
     }
 
     #[test]
     fn lint_never_persists_config_even_after_resolving_versions() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
-        // Act
         let _ = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
         assert!(m.repo.persisted_config().is_none());
     }
 
     #[test]
     fn successful_version_resolution_preserves_valid_count_across_stable_and_pinned() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: hello\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
-        let infos = m.out.infos();
-        assert!(
-            infos
-                .iter()
-                .any(|line| line.contains("✓") && line.contains("2 package(s)"))
-        );
+        let report = extract_report(&m);
+        assert_eq!(report.valid_packages.len(), 2);
     }
 
     #[test]
     fn pinned_with_failing_name_eval_skips_resolver_call() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: ghost-pkg\n        version: \"9.9.9\"\n",
         ))
         .with_failing_packages(&["ghost-pkg"]);
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 1);
         assert!(m.resolver.resolve_calls().is_empty());
     }
 
     #[test]
     fn resolver_infra_failure_propagates_as_application_error() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ))
         .with_resolver_infra_failure();
 
-        // Act
         let result = lint(&m.deps(), false, None);
 
-        // Assert
         assert!(matches!(
             result,
             Err(ApplicationError::Nix(NixError::NoExitCode))
@@ -323,41 +313,37 @@ mod tests {
 
     #[test]
     fn pinned_version_that_cannot_be_resolved_reports_version_not_found() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"9.9.9\"\n",
         ))
         .with_failing_versions(&[("go", "no matching commit")]);
 
-        // Act
         let code = lint(&m.deps(), false, None).unwrap();
 
-        // Assert
         assert_eq!(code, 1);
-        let report = m.out.infos().join("\n");
-        assert!(report.contains("VERSION_NOT_FOUND"));
-        assert!(report.contains("go"));
-        assert!(report.contains("9.9.9"));
+        let report = extract_report(&m);
+        assert!(report.errors.iter().any(|err| matches!(
+            err,
+            PackageValidationError::VersionNotFound { package, version, .. }
+            if package == "go" && version == "9.9.9"
+        )));
     }
 
     #[test]
     fn verbose_appends_raw_error_details() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: ghost-pkg\n",
         ))
         .with_failing_packages(&["ghost-pkg"]);
 
-        // Act
         let code = lint(&m.deps(), true, None).unwrap();
 
-        // Assert
         assert_eq!(code, 1);
         assert!(
-            m.out
-                .infos()
+            m.reporter
+                .events()
                 .iter()
-                .any(|line| line.contains("Verbose Error Details"))
+                .any(|e| matches!(e, UseCaseEvent::ValidationReport { verbose: true, .. }))
         );
     }
 }

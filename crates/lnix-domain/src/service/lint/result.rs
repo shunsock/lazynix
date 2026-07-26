@@ -3,7 +3,7 @@
 use super::error::PackageValidationError;
 
 /// Result of validating multiple packages
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationResult {
     /// Packages that passed validation
     pub valid_packages: Vec<String>,

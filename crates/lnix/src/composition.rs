@@ -9,10 +9,11 @@ use std::path::Path;
 use lnix_app::Deps;
 use lnix_infra::WorkspacePaths;
 use lnix_infra::gateway::{NixVersionsResolver, SubprocessNixEvaluator, SubprocessNixRunner};
-use lnix_infra::output::TerminalOutput;
 use lnix_infra::persistence::{
     FsConfigRepository, FsEnvFileChecker, FsFlakeWriter, FsProjectScaffolder,
 };
+
+use crate::presenter::TerminalPresenter;
 
 /// Owns one adapter per port for the duration of a command.
 pub struct AdapterSet {
@@ -23,7 +24,7 @@ pub struct AdapterSet {
     nix: SubprocessNixRunner,
     nix_eval: SubprocessNixEvaluator,
     resolver: NixVersionsResolver,
-    out: TerminalOutput,
+    reporter: TerminalPresenter,
 }
 
 impl AdapterSet {
@@ -37,7 +38,7 @@ impl AdapterSet {
             nix: SubprocessNixRunner,
             nix_eval: SubprocessNixEvaluator,
             resolver: NixVersionsResolver,
-            out: TerminalOutput,
+            reporter: TerminalPresenter,
         }
     }
 
@@ -50,7 +51,7 @@ impl AdapterSet {
             nix: &self.nix,
             nix_eval: &self.nix_eval,
             resolver: &self.resolver,
-            out: &self.out,
+            reporter: &self.reporter,
         }
     }
 }
