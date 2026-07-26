@@ -63,18 +63,19 @@ lnix init
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
-      - hello
+      - name: hello
     unstable: []
+    pinned: []
   shellHook:
     - "echo Welcome to LazyNix DevShell!"
 ```
 
 これが設定のすべてです。各フィールドの意味を確認しましょう:
 
-- **`allowUnfree`** --- Nixはオープンソースとプロプライエタリ（unfree）パッケージを区別しています。VS CodeやCUDAツールキットなどのプロプライエタリソフトウェアが必要な場合は `true` に設定します。`false` の場合、オープンソースパッケージのみ許可されます。
+- **`allowUnfree`** --- Nixはオープンソースとプロプライエタリ（unfree）パッケージを区別しています。デフォルトは `true` で、VS CodeやCUDAツールキットなどのプロプライエタリソフトウェアを利用できます。`false` に設定すると、オープンソースパッケージのみに制限されます。
 - **`package.stable`** --- [nixpkgs](https://github.com/NixOS/nixpkgs)（Nixのパッケージリポジトリ）の安定版スナップショットから取得されるパッケージです。ほとんどのツールにはこちらを使います。
 - **`package.unstable`** --- nixpkgsの最新版から取得されるパッケージです。安定チャネルにまだ到達していない最新バージョンが必要な場合に使います。
 - **`shellHook`** --- 開発環境に入るたびに自動実行されるシェルコマンドです。バージョン情報の表示、エイリアスの設定、初期化スクリプトの実行などに便利です。
@@ -87,12 +88,13 @@ Pythonプロジェクトを始めるとしましょう。パッケージマネ�
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
   shellHook:
     - "echo Python $(python --version) ready!"
     - "echo uv $(uv --version) ready!"
@@ -151,12 +153,13 @@ lnix run -- python -c "print('Hello from LazyNix!')"
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
   shellHook:
     - "echo Python $(python --version) ready!"
 
@@ -188,9 +191,10 @@ lnix task fmt
 devShell:
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
 
   test:
     - "python -m pytest"
@@ -217,6 +221,104 @@ lnix lint
 
 `nix eval` を使って各パッケージをチェックし、見つからないパッケージを報告します。パッケージ名のタイプミスや存在しないパッケージを、ビルド時に分かりにくいエラーとなる前にキャッチします。
 
+## パッケージバージョンを固定する
+
+`stable` や `unstable` チャネルでは、必要な正確なバージョンが手に入らないことがあります。たとえば本番CIイメージに合わせて Go 1.21.13 でチーム全員をそろえたいのに、nixpkgs stable はすでに次のリリースへ進んでしまった、という状況です。`pinned` フィールドはこの問題を解決し、チャネルとは独立にパッケージを特定バージョンへ固定します。
+
+Go 1.21.13 を固定する手順:
+
+1. 利用可能なバージョンを検索します（詳しくは次の節を参照）:
+
+```bash
+lnix search go -v '>=1.21,<1.22'
+```
+
+2. 使いたいバージョンを `devShell.package.pinned` に追加します:
+
+```yaml
+devShell:
+  package:
+    stable:
+      - name: python312
+    pinned:
+      - name: go
+        version: "1.21.13"
+```
+
+3. `lnix develop` を実行します。LazyNix は `nix-versions` を呼び出して、そのバージョンに対応する nixpkgs のコミットハッシュと Nix の attribute path を解決し、結果を `resolvedCommit` と `resolvedAttr` として `lazynix.yaml` に書き戻します:
+
+```yaml
+devShell:
+  package:
+    pinned:
+      - name: go
+        version: "1.21.13"
+        resolvedCommit: "5ed6275"
+        resolvedAttr: "go_1_21"
+```
+
+一度解決されれば、以降の実行はキャッシュされた解決結果を再利用します。ネットワーク参照の繰り返しもドリフトもありません。チームの誰もが正確に Go 1.21.13 を手に入れます。
+
+> **補足:** `lnix lint` は `stable` と `unstable` のパッケージだけを `nix eval` で検証し、`pinned` エントリは検証しません。pinned パッケージは現在のチャネルではなく過去の nixpkgs コミットに由来するため、現在のレジストリに対する `nix eval` では意味のある結果が得られないからです。
+
+## 利用可能なバージョンを検索する
+
+パッケージを固定する前に、nixpkgs にどのバージョンが存在するかを知る必要があります。それが `lnix search` の役割です。
+
+パッケージの既知のバージョンをすべて表形式で表示します:
+
+```bash
+lnix search go
+```
+
+semver 制約でフィルタします:
+
+```bash
+lnix search go -v '>=1.21,<1.22'
+```
+
+機械可読な出力を得ます。スクリプトやCIに便利です。`--one` は最新の1件だけを返します:
+
+```bash
+lnix search go --json --one
+```
+
+典型的なワークフローは、`lnix search` で正確なバージョンを見つけ、それを前節で説明した `devShell.package.pinned` に貼り付けることです。
+
+## flake.lock を更新する
+
+`lnix develop --update` は `flake.lock` を更新してから開発シェルに入ります。ロックファイルの更新だけを行いたい場合 — たとえば CI で lock の変更を commit するだけで開発シェルに入らないとき — は `lnix update` を使います:
+
+```bash
+lnix update
+```
+
+このコマンドは `nix flake update` を実行してすぐ終了します。対話シェルを起動せず、長時間動くプロセスも作らない軽量なコマンドなので、自動化パイプラインや pre-commit フックに自然に組み込めます。
+
+lock を更新してすぐに作業を始めたいときは `lnix develop --update` を、lock 更新自体が目的のときは `lnix update` を使ってください。
+
+## シェルエイリアスの読み込み
+
+`alias ll='ls -la'` のようなシェルエイリアスは便利ですが、`shellHook` の中に直接書くと役割が入り混じります。`devShell.shellAlias` を使うと、外部のエイリアスファイルを指定でき、LazyNix はその中の `alias …` 行を抽出して開発シェル起動時に評価します。
+
+```yaml
+devShell:
+  package:
+    stable:
+      - name: bash
+  shellAlias:
+    - ./aliases.sh
+    - ~/.bash_aliases
+```
+
+パスの解決は flake 生成時ではなく、シェル起動時に行われます:
+
+- 相対パス（例: `./aliases.sh`）は `$PWD` を基準に解決されます。
+- `~/` は `$HOME` に展開されます。
+- 絶対パスはそのまま使われます。
+
+指定したファイルが起動時に存在しない場合、LazyNix は黙って無視します。個人用のオプションのエイリアスファイル（`~/.bash_aliases` など）を気軽に列挙できるので、そのファイルを持たないチームメイトの環境を壊しません。
+
 ## ここまでに学んだこと
 
 このガイドでは、以下を行いました:
@@ -227,6 +329,10 @@ lnix lint
 - `lnix develop` で環境に入った
 - `lnix run` でコマンドを実行し、再利用可能なタスクを定義した
 - `lnix lint` で設定を検証した
+- `devShell.package.pinned` で個別のパッケージを特定バージョンへ固定し、LazyNix に `resolvedCommit` と `resolvedAttr` を書き込ませた
+- `lnix search` で利用可能なバージョンを検索した
+- `lnix update` で `flake.lock` の更新だけを行った
+- `devShell.shellAlias` で外部ファイルからシェルエイリアスを読み込んだ
 
 ## 次のステップ
 

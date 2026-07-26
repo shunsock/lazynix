@@ -1,6 +1,6 @@
 # System Architecture
 
-LazyNix is structured as a Rust workspace with four crates. Each crate has a single, well-defined responsibility, and dependencies flow in one direction: from the CLI entry point down to the lower-level libraries. This chapter explains what each crate does, how they connect, and how data flows through the system when you run a command.
+LazyNix is a Rust workspace made of four crates. Each crate owns a single responsibility, and dependencies flow strictly from the CLI down to a pure domain core. This chapter explains what each crate does, how they connect through ports and adapters, the shape of the configuration data, and how a single `lnix develop` invocation moves through the layers.
 
 ## Architecture Overview
 
@@ -8,197 +8,175 @@ The workspace is organized under `crates/`:
 
 ```
 crates/
-  lnix/                  # Entry point and command routing
-    templates/           # Template files for lnix init
-  lnix-flake-generator/  # YAML parsing and flake.nix generation
-  lnix-linter/           # Package validation via nix eval
-  lnix-nix-dispatcher/   # Nix command execution
+  lnix/          # Binary: CLI entry point (clap parsing + composition root)
+  lnix-app/      # Library: use-cases (init/develop/run/test/task/lint/update/search)
+  lnix-domain/   # Library: pure domain — definitions, services, ports, value objects
+  lnix-infra/    # Library: adapters — filesystem, nix subprocess, nix-versions, stdout
 ```
 
-The dependency graph flows strictly top-down:
+The design follows a hexagonal ("ports and adapters") layout. `lnix-domain` is the innermost layer and performs no I/O. `lnix-app` orchestrates use-cases by talking only to traits (ports) that live in `lnix-domain`. `lnix-infra` supplies the concrete adapters, and the `lnix` binary is the composition root that wires everything together.
 
-```
-              cli
-           /   |   \
-          v    v    v
-  flake-     linter   nix-
-  generator             dispatcher
-```
+## Crates
 
-`cli` depends on all three library crates. The library crates do not depend on each other. This flat dependency structure keeps modules loosely coupled: changing how Nix commands are executed (in `nix-dispatcher`) does not affect how YAML is parsed (in `flake-generator`), and vice versa.
-
-## cli
+### lnix
 
 **Crate:** `lnix` (binary)
-**Responsibility:** Parse CLI arguments, orchestrate subcommands, coordinate the other crates.
+**Responsibility:** parse CLI arguments and act as the composition root.
 
-The `cli` crate is the only binary in the workspace. It defines the `lnix` command and its subcommands using [clap](https://docs.rs/clap/):
+`lnix` defines the `lnix` command and its subcommands with [clap](https://docs.rs/clap/):
 
 | Subcommand | Description |
 |------------|-------------|
-| `init`     | Create `lazynix.yaml` and `flake.nix` from templates |
-| `develop`  | Generate `flake.nix` and enter a Nix development shell |
-| `run`      | Execute a command inside the development environment |
-| `test`     | Run test commands defined in `lazynix.yaml` |
-| `task`     | Run a named task defined in `lazynix.yaml` |
-| `update`   | Update `flake.lock` |
-| `lint`     | Validate packages using `nix eval` |
+| `init`     | Scaffold `lazynix.yaml` and starter files from the bundled templates |
+| `update`   | Update `flake.lock` without entering the shell |
+| `develop`  | Regenerate `flake.nix` and enter `nix develop` |
+| `run`      | Run a single command inside the dev shell |
+| `test`     | Run the `test` commands declared in `lazynix.yaml` |
+| `task`     | Run a named task from the `task` section |
+| `lint`     | Validate channel-based packages with `nix eval` |
+| `search`   | Look up available versions via nix-versions |
 
-Each subcommand follows the same pattern:
+The binary itself contains no business logic. `main.rs` parses arguments, constructs an `AdapterSet` (the composition root), borrows those adapters into an `lnix_app::Deps` bundle, and dispatches into the matching use-case in `lnix-app`.
 
-1. Read configuration (via `flake-generator`)
-2. Validate the configuration
-3. Generate `flake.nix` if needed (via `flake-generator`)
-4. Execute a Nix command (via `nix-dispatcher`)
+### lnix-app
 
-The `cli` crate does not contain business logic. It is a thin coordination layer that delegates work to the library crates. Error handling follows the railway pattern: each step returns a `Result`, and errors propagate upward to `main()` where they are printed and converted to an exit code.
+**Crate:** `lnix-app` (library)
+**Responsibility:** orchestrate use-cases against domain ports.
 
-### Key modules
+Each subcommand maps to a function under `usecase/` shaped as `fn(&Deps, ...) -> Result<i32, ApplicationError>`. `Deps` is a borrowed bundle of every port a use-case may touch: `ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`, `NixRunner`, `NixEvaluator`, `VersionResolver`, and `OutputPort`.
 
-- `cli_parser.rs` --- Defines the `Cli` struct and `Commands` enum with clap derive macros.
-- `commands/` --- Subcommand implementations that are complex enough to warrant their own module (e.g., `lint`).
-- `env_validator.rs` --- Validates environment variable configuration (dotenv file existence, etc.).
-- `task_interpolator.rs` --- Substitutes CLI arguments into task command templates.
+The flake-generating use-cases (`develop`, `test`, `run`) share a common prefix defined in `pipeline.rs`:
 
-## flake-generator
+1. `load_config` — read settings, read `lazynix.yaml`, run `validate_config` (diagnostics are surfaced via `OutputPort::warn`), check that referenced dotenv files exist, then resolve any pinned packages and persist the resolutions back into `lazynix.yaml`.
+2. `write_flake` — call `lnix_domain::render_flake` and write the result to `./flake.nix`.
+3. `maybe_update_lock` — call `NixRunner::flake_update` when `--update` was requested.
 
-**Crate:** `lnix-flake-generator` (library)
-**Responsibility:** Parse `lazynix.yaml` and generate `flake.nix` content.
+Errors compose on the railway: every step returns a `Result`, and focused domain errors are lifted into `ApplicationError` through `#[from]`, so use-case bodies stay linear and let `?` short-circuit failures up to `main()`.
 
-This crate handles the core translation from YAML to Nix. It exposes three public functions:
+### lnix-domain
 
-```rust
-// Parse lazynix.yaml into a Config struct
-let parser = LazyNixParser::new(config_dir);
-let config: Config = parser.read_config()?;
+**Crate:** `lnix-domain` (library)
+**Responsibility:** the pure domain. No I/O; depends only on `serde` and `thiserror`.
 
-// Validate the config (check for empty packages, invalid names, etc.)
-validate_config(&config)?;
+Four sub-modules divide the domain:
 
-// Render the Config into a flake.nix string
-let flake_content: String = render_flake(&config, override_url);
+- `definition/` — the configuration AST: `DevShellDefinition`, `DevShell`, `Package`, `PackageEntry`, `PinnedPackageEntry`, `Env`, `EnvVar`, `TaskDef`, `Settings`. Also `validate_config`, which produces `Diagnostic` values for non-fatal findings and returns `ValidationError` for hard failures.
+- `values/` — value objects that validate their invariants at construction: `PackageName`, `PackageVersion`, `TaskName`, `EnvVarName`, `RegistryUrl`. These make illegal values unrepresentable in downstream code and double as the shell-injection defence for anything that flows into a generated Nix expression or a spawned subprocess.
+- `service/` — pure domain services: `flake::render_flake` (turns a `DevShellDefinition` into a `flake.nix` string), `lint::*` (classifies raw `nix eval` errors and formats validation reports), `task::interpolate_command` (substitutes CLI arguments into task templates).
+- `interface/` — the ports. Traits live under `interface::persistence` (`ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`), `interface::gateway` (`NixRunner`, `NixEvaluator`, `VersionResolver`), and `interface::output` (`OutputPort`).
+
+### lnix-infra
+
+**Crate:** `lnix-infra` (library)
+**Responsibility:** concrete adapters for the domain ports.
+
+Every trait declared in `lnix_domain::interface` gets an implementation here:
+
+- `persistence/` — filesystem adapters (`ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`). All paths are anchored to `WorkspacePaths` so no adapter reads the current working directory implicitly.
+- `gateway/` — subprocess adapters that call `nix` and `nix-versions`. Two private helpers (`run_inherit` for interactive commands, `run_capture` for evaluated output) keep stdio wiring and error mapping in one place.
+- `output/` — the terminal sink that implements `OutputPort`.
+
+`lnix-infra` also bundles the templates used by `lnix init`.
+
+## Dependency Direction and Inversion
+
+The dependency graph is a straight line with a single inversion:
+
+```
+lnix  ─►  lnix-app  ─►  lnix-domain  ◄─  lnix-infra
 ```
 
-### Data model
+- `lnix` depends on `lnix-app` and `lnix-infra` only in the composition root.
+- `lnix-app` depends only on `lnix-domain`. It never names a concrete adapter; it talks to trait objects (`&dyn ConfigRepository`, `&dyn NixRunner`, ...).
+- `lnix-domain` depends on nothing internal. It defines the ports.
+- `lnix-infra` depends on `lnix-domain` and implements its ports. The arrow points the "wrong" way on purpose: this is the **dependency inversion** that keeps the domain testable in isolation.
 
-The `Config` struct mirrors the `lazynix.yaml` structure:
+Because ports are traits, use-case tests substitute mocks by constructing `Deps` with `&dyn` references to fakes. Nothing about the use-case code changes between production and tests.
+
+## Data Model
+
+`DevShellDefinition` is the root of `lazynix.yaml`:
 
 ```
-Config
+DevShellDefinition
   └── DevShell
-        ├── allow_unfree: bool
-        ├── Package { stable, unstable }
-        ├── shell_hook: Vec<String>
-        ├── env: Env { dotenv, envvar }
-        ├── test: Vec<String>
-        └── task: HashMap<String, TaskDef>
+        ├── allowUnfree:  bool                     (default: true)
+        ├── package: Package
+        │     ├── stable:   Vec<PackageEntry>              # { name: PackageName }
+        │     ├── unstable: Vec<PackageEntry>              # { name: PackageName }
+        │     └── pinned:   Vec<PinnedPackageEntry>        # { name, version, resolvedCommit?, resolvedAttr? }
+        ├── shellHook:   Vec<String>
+        ├── env:         Option<Env>                       # { dotenv: Vec<String>, envvar: Vec<EnvVar> }
+        ├── test:        Vec<String>
+        ├── task:        Option<HashMap<TaskName, TaskDef>>
+        └── shellAlias:  Vec<String>                       # files whose alias definitions are loaded
 ```
 
-The parser deserializes YAML into this struct using [serde](https://serde.rs/). The generator then walks the struct to produce a `flake.nix` string. There is no intermediate representation --- the translation is direct from the data model to the output string.
+Notes on the newer fields:
 
-### Validation
+- `pinned` binds a package to an exact version. `resolvedCommit` and `resolvedAttr` are filled in the first time the pipeline resolves the version through `VersionResolver`, and are then written back to `lazynix.yaml` so subsequent runs skip the lookup.
+- `shellAlias` lists files whose shell alias definitions are loaded into the dev shell.
+- `env.envvar[].name` is an `EnvVarName` and `task` keys are `TaskName`, so invalid identifiers are rejected at YAML parse time.
 
-`validate_config` checks constraints that YAML syntax alone cannot enforce:
+There is no separate intermediate representation. `render_flake` walks `DevShellDefinition` directly to produce the `flake.nix` string.
 
-- At least one package must be declared
-- Package names must not be empty strings
-- Duplicate package names across stable and unstable are flagged
+## Validation Rules
 
-Validation runs before generation, so invalid configurations never produce a `flake.nix`.
+`lnix_domain::validate_config` runs the cross-field checks that value objects cannot express. Field-level invariants — package name syntax, version non-emptiness, task and env-var name syntax — are already enforced when serde constructs the value objects, so `validate_config` only inspects the remaining relationships.
 
-## linter
+Two outcomes are possible:
 
-**Crate:** `lnix-linter` (library)
-**Responsibility:** Verify that declared packages exist in nixpkgs before the user enters a shell.
+- **Hard failure** — `ValidationError::EmptyTaskCommands(name)` when a task declares an empty `commands` list. The pipeline stops before rendering `flake.nix`.
+- **Non-fatal diagnostic** — `Diagnostic::NoPackages` when `stable`, `unstable`, and `pinned` are all empty. `validate_config` returns it as data; `pipeline::load_config` forwards it to `OutputPort::warn` and execution continues.
 
-The linter uses `nix eval` to check whether each package in `lazynix.yaml` can be resolved. This catches typos and platform-incompatible packages early, before the user waits for a slow `nix develop` invocation to fail.
+Additional invariants are enforced elsewhere:
 
-```
-Input: package names + target architecture
-  │
-  ├── nix_eval::eval_package()     # Run nix eval for each package
-  ├── error_classifier::classify() # Categorize nix eval failures
-  ├── validator::validate()        # Aggregate results
-  └── reporter::format()           # Format human-readable output
-```
-
-### Key design decisions
-
-- **Parallel evaluation.** The linter uses [rayon](https://docs.rs/rayon/) to evaluate multiple packages concurrently. This matters when `lazynix.yaml` declares many packages.
-- **Error classification.** Raw `nix eval` errors are parsed into categories (package not found, attribute path error, architecture incompatibility) so the user gets an actionable message rather than a wall of Nix evaluation output.
-- **Architecture awareness.** By default, the linter checks packages for the current system architecture. The `--arch` flag allows checking for a different target (e.g., verifying that a configuration works on `x86_64-linux` from an `aarch64-darwin` machine).
-
-## nix-dispatcher
-
-**Crate:** `lnix-nix-dispatcher` (library)
-**Responsibility:** Execute Nix commands as subprocesses.
-
-This crate provides a clean interface between LazyNix and the Nix CLI. It abstracts the details of spawning Nix processes, handling their exit codes, and reporting errors.
-
-The public API is a set of functions:
-
-| Function | What it does |
-|----------|-------------|
-| `run_nix_develop()` | Enter an interactive `nix develop` shell |
-| `run_nix_develop_command(args)` | Run a single command inside `nix develop` |
-| `run_flake_update()` | Execute `nix flake update` |
-| `run_nix_test()` | Run test commands with `LAZYNIX_TEST_MODE=1` |
-| `run_task_in_nix_env(commands)` | Execute multiple commands sequentially |
-
-Each function constructs the appropriate `nix` command, spawns it as a subprocess, and returns the exit code. The crate does not interpret the output of Nix commands --- it only cares about success or failure.
-
-### Error handling
-
-All functions return `Result<T, NixDispatcherError>`. The error type covers two cases:
-
-- **Command not found.** The `nix` binary is not on `PATH`.
-- **Execution failure.** The subprocess could not be spawned (permission denied, etc.).
-
-Note that a non-zero exit code from `nix` is not treated as an error in the Rust sense. It is returned as a value (`i32`) so the caller can decide how to handle it --- typically by forwarding it as the `lnix` process exit code.
+- `pipeline::validate_env_files` fails when `env.dotenv` references a file that does not exist.
+- Value-object parsers (`PackageName`, `PackageVersion`, `TaskName`, `EnvVarName`) reject syntactically invalid input at parse time, which also serves as the shell-injection guard for anything that eventually flows into a generated Nix expression or a spawned subprocess.
 
 ## Data Flow
 
-To tie it all together, here is what happens when you run `lnix develop`:
+Here is what happens when a user runs `lnix develop`:
 
 ```
-User runs: lnix develop
+User runs: lnix develop [--update]
   │
-  1. cli parses arguments (clap)
+  1. lnix (binary) parses arguments with clap.
   │
-  2. cli reads lazynix-settings.yaml (optional)
-  │   └── This optional file allows overriding the nixpkgs version
-  │       used for stable packages (e.g., pointing to a custom fork).
-  │       Most users do not need this file.
+  2. lnix builds AdapterSet and borrows it into a lnix_app::Deps bundle,
+     then dispatches to lnix_app::develop.
   │
-  3. flake-generator reads lazynix.yaml
-  │   └── Deserializes into Config struct
+  3. lnix_app::pipeline::load_config
+       ├── ConfigRepository::read_settings         (optional lazynix-settings.yaml)
+       ├── ConfigRepository::read_config           (lazynix.yaml → DevShellDefinition)
+       ├── lnix_domain::validate_config            (diagnostics → OutputPort::warn)
+       ├── validate_env_files                      (dotenv files must exist)
+       └── resolve_pinned_packages                 (VersionResolver::resolve →
+                                                    write back to lazynix.yaml)
   │
-  4. flake-generator validates Config
-  │   └── Returns error if packages are empty or invalid
+  4. lnix_app::pipeline::write_flake
+       └── lnix_domain::render_flake → FlakeWriter::write_flake
   │
-  5. cli validates env configuration
-  │   └── Checks that referenced .env files exist
+  5. lnix_app::pipeline::maybe_update_lock          (only when --update)
+       └── NixRunner::flake_update
   │
-  6. flake-generator renders flake.nix
-  │   └── Writes the generated string to ./flake.nix
-  │
-  7. nix-dispatcher runs nix flake update (if --update)
-  │
-  8. nix-dispatcher runs nix develop
-  │   └── Replaces the current process with an interactive shell
-  │
-  User is now inside the development environment.
+  6. NixRunner::develop                             (execs `nix develop`,
+                                                     replacing the current process)
 ```
 
-Each step either succeeds and passes control to the next, or returns an error that propagates up to `main()`. There are no retries, no fallbacks, and no hidden state. The flow is linear and predictable.
+Every step either succeeds and hands control to the next, or returns a `Result::Err` that is lifted into `ApplicationError` and printed by `main()`. There are no retries, no fallbacks, no hidden state.
 
 ## Summary
 
 | Crate | Type | Responsibility |
 |-------|------|---------------|
-| `cli` | binary | Argument parsing, command orchestration |
-| `flake-generator` | library | YAML parsing, validation, Nix code generation |
-| `linter` | library | Package existence verification via `nix eval` |
-| `nix-dispatcher` | library | Nix command execution as subprocesses |
+| `lnix`        | binary  | CLI parsing and composition root |
+| `lnix-app`    | library | Use-cases and pipeline orchestration against ports |
+| `lnix-domain` | library | Definitions, value objects, pure services, port traits |
+| `lnix-infra`  | library | Adapters for the filesystem, `nix`, `nix-versions`, stdout |
 
-Dependencies flow in one direction. Library crates do not depend on each other. Each crate can be understood, tested, and modified independently.
+Dependencies flow one way from `lnix` down to `lnix-domain`, with `lnix-infra` connecting to `lnix-domain` through the inverted arrow of the port traits. Each crate can be reasoned about, tested, and modified on its own.
+
+## Note
+
+Design documents that go deeper than this overview are maintained under `document/jp/design/` in Japanese only. See for example `document/jp/design/version-pinning.md` for the pinning workflow.

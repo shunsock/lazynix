@@ -1,0 +1,25 @@
+devShell:
+  allowUnfree: true
+  package:
+    stable:
+      - name: python312
+      - name: uv
+    unstable: []
+    pinned: []
+
+  shellHook:
+    - "echo 'Try: lnix task fmt / lnix task review <expr> / lnix test'"
+
+  task:
+    fmt:
+      description: "Format Python sources with ruff"
+      commands:
+        - "uv run ruff format ."
+    review:
+      description: "Run a subset of pytest via CLI_ARGS"
+      commands:
+        - "uv run pytest {{.CLI_ARGS}}"
+
+  test:
+    - "uv run ruff check ."
+    - "uv run pytest -q"

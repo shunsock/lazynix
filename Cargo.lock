@@ -315,7 +315,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "lnix"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "lnix-app"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "lnix-domain",
  "serde_yaml",
@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "lnix-domain"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_yaml",
@@ -346,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "lnix-infra"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "lnix-domain",
  "rayon",

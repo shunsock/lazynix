@@ -18,9 +18,10 @@ LazyNixの核となる設計判断は、ユーザーがNixを一切書かない�
 devShell:
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
 ```
 
 LazyNixはこれを裏側で有効な `flake.nix` に変換します。ユーザーはNixの式、属性セット、nixpkgsのモジュールシステムを理解する必要がありません。必要なパッケージの名前さえ知っていればよく、それは [search.nixos.org](https://search.nixos.org/packages) で調べられます。

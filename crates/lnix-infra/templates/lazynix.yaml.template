@@ -4,7 +4,13 @@ devShell:
     stable:
       - name: hello
     unstable: []
-    pinned: []
+    # Optional: Pin a package to an exact version.
+    # Find candidates with: lnix search go -v '>=1.21,<1.22'
+    # After you run `lnix develop`, resolvedCommit / resolvedAttr are
+    # filled in automatically and written back to this file.
+    # pinned:
+    #   - name: go
+    #     version: "1.21.13"
   shellHook:
     - "echo Welcome to LazyNix DevShell!"
 

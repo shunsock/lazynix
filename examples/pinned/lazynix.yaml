@@ -1,0 +1,13 @@
+devShell:
+  allowUnfree: true
+  package:
+    stable:
+      - name: python312
+      - name: uv
+    unstable: []
+    pinned:
+      - name: go
+        version: "1.21.13"
+  shellHook:
+    - "echo Python $(python --version) ready!"
+    - "echo Go $(go version) ready!"
