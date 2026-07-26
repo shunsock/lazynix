@@ -9,6 +9,7 @@ use lnix_domain::{DevShellDefinition, render_flake};
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 
 /// A validated config together with the optional registry override that
 /// settings supplied, ready to be rendered into a flake.
@@ -25,14 +26,15 @@ pub(crate) fn load_config(d: &Deps) -> Result<LoadedConfig, ApplicationError> {
         .and_then(|s| s.override_stable_package)
         .map(|url| url.as_str().to_string());
 
-    d.out.info("Reading configuration...");
+    d.reporter.report(&UseCaseEvent::ReadingConfig);
     let mut config = d.repo.read_config()?;
 
-    d.out.info("Validating configuration...");
+    d.reporter.report(&UseCaseEvent::ValidatingConfig);
     for diagnostic in
         lnix_domain::validate_config(&config).map_err(lnix_domain::ConfigError::from)?
     {
-        d.out.warn(&diagnostic.to_string());
+        d.reporter
+            .report(&UseCaseEvent::ConfigDiagnostic(diagnostic.to_string()));
     }
     validate_env_files(d, &config)?;
 
@@ -68,10 +70,10 @@ fn resolve_pinned_packages(
         if entry.resolved_commit.is_some() && entry.resolved_attr.is_some() {
             continue;
         }
-        d.out.info(&format!(
-            "Resolving version for {} @ {}...",
-            entry.name, entry.version
-        ));
+        d.reporter.report(&UseCaseEvent::ResolvingPinned {
+            name: entry.name.clone(),
+            version: entry.version.clone(),
+        });
         let resolved = d.resolver.resolve(&entry.name, &entry.version)?;
         entry.resolved_commit = Some(resolved.commit);
         entry.resolved_attr = Some(resolved.attr);
@@ -80,29 +82,29 @@ fn resolve_pinned_packages(
 
     if resolved_any {
         d.repo.write_config(config)?;
-        d.out.info("Updated lazynix.yaml with resolved versions");
+        d.reporter
+            .report(&UseCaseEvent::UpdatedYamlWithResolvedVersions);
     }
     Ok(())
 }
 
 /// Renders the loaded config and persists it as `flake.nix`.
 pub(crate) fn write_flake(d: &Deps, loaded: &LoadedConfig) -> Result<(), ApplicationError> {
-    d.out.info("Generating flake.nix...");
+    d.reporter.report(&UseCaseEvent::GeneratingFlake);
     let contents = render_flake(&loaded.config, loaded.override_url.as_deref());
     d.writer.write_flake(&contents)?;
-    d.out.info("✓ flake.nix generated successfully");
+    d.reporter.report(&UseCaseEvent::FlakeGenerated);
     Ok(())
 }
 
 /// Updates `flake.lock` when requested, or reports that it was skipped.
 pub(crate) fn maybe_update_lock(d: &Deps, update_lock: bool) -> Result<(), ApplicationError> {
     if update_lock {
-        d.out.info("Updating flake.lock...");
+        d.reporter.report(&UseCaseEvent::UpdatingLock);
         d.nix.flake_update()?;
-        d.out.info("flake.lock updated successfully");
+        d.reporter.report(&UseCaseEvent::LockUpdated);
     } else {
-        d.out
-            .info("Skipping flake.lock update (use --update to update)");
+        d.reporter.report(&UseCaseEvent::LockUpdateSkipped);
     }
     Ok(())
 }

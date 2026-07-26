@@ -6,8 +6,8 @@
 //! dispatch is negligible for a CLI, and swapping mocks in tests is a
 //! plain struct literal.
 
+use crate::reporter::ReporterPort;
 use lnix_domain::interface::gateway::{NixEvaluator, NixRunner, VersionResolver};
-use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
     ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
 };
@@ -31,26 +31,21 @@ pub struct Deps<'a> {
     pub nix_eval: &'a dyn NixEvaluator,
     /// Resolves/searches package versions via nix-versions (capturing).
     pub resolver: &'a dyn VersionResolver,
-    /// Sink for user-facing progress messages and warnings.
-    pub out: &'a dyn OutputPort,
+    /// Emits semantic events to the presentation adapter.
+    pub reporter: &'a dyn ReporterPort,
 }
 
 #[cfg(test)]
 mod tests {
     use crate::mocks::*;
 
-    // Building Deps from the shared mocks is itself the assertion that
-    // every port trait stays object-safe (a generic method would break
-    // `dyn`).
     #[test]
     fn bundles_all_ports_and_dispatches_through_dyn() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
         let deps = m.deps();
 
-        // Act
         let config = deps.repo.read_config().unwrap();
         let write_result = deps.writer.write_flake("{}");
         let env_exists = deps.env.exists(".env");
@@ -63,9 +58,7 @@ mod tests {
             .resolver
             .resolve(&"go".parse().unwrap(), &"1.21.13".parse().unwrap())
             .unwrap();
-        deps.out.info("progress");
 
-        // Assert
         assert_eq!(config.dev_shell.package.stable[0].name.as_str(), "bash");
         assert!(write_result.is_ok());
         assert!(env_exists);

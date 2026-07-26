@@ -6,8 +6,10 @@
 //!
 //! - [`persistence`] — the project's own files (repositories).
 //! - [`gateway`] — external processes (`nix`, `nix-versions`).
-//! - [`output`] — the user-facing display sink.
+//!
+//! Application-level ports whose vocabulary belongs to the application
+//! layer (e.g. `ReporterPort` in `lnix-app`) live next to their
+//! use-cases rather than here.
 
 pub mod gateway;
-pub mod output;
 pub mod persistence;

@@ -2,6 +2,7 @@
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 use crate::pipeline;
 
 /// Renders `flake.nix` (unless the caller opted out) and runs
@@ -20,15 +21,14 @@ pub fn run(
         let loaded = pipeline::load_config(d)?;
         pipeline::write_flake(d, &loaded)?;
     } else {
-        d.out
-            .info("Using existing flake.nix (--no-regen specified)");
+        d.reporter.report(&UseCaseEvent::UsingExistingFlake);
     }
 
     pipeline::maybe_update_lock(d, update_lock)?;
 
-    d.out.info("");
-    d.out
-        .info(&format!("Running command: {}", cmd_args.join(" ")));
+    d.reporter.report(&UseCaseEvent::RunningCommand {
+        argv: cmd_args.clone(),
+    });
     Ok(d.nix.develop_command(&cmd_args)?)
 }
 
@@ -39,15 +39,12 @@ mod tests {
 
     #[test]
     fn regenerates_flake_and_runs_command() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         let code = run(&m.deps(), false, true, vec!["echo".into(), "hi".into()]).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert!(m.writer.written().is_some());
         assert_eq!(
@@ -58,31 +55,26 @@ mod tests {
 
     #[test]
     fn no_regen_skips_config_loading_entirely() {
-        // Arrange: no config on disk — --no-regen must not need one
         let m = Mocks::with_missing_config();
 
-        // Act
         let code = run(&m.deps(), false, false, vec!["true".into()]).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert!(m.writer.written().is_none());
         assert!(
-            m.out
-                .infos()
-                .contains(&"Using existing flake.nix (--no-regen specified)".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::UsingExistingFlake))
         );
     }
 
     #[test]
     fn rejects_empty_command() {
-        // Arrange
         let m = Mocks::with_missing_config();
 
-        // Act
         let result = run(&m.deps(), false, true, vec![]);
 
-        // Assert
         assert!(matches!(result, Err(ApplicationError::EmptyRunCommand)));
     }
 }

@@ -320,6 +320,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "lnix-app",
+ "lnix-domain",
  "lnix-infra",
  "predicates",
  "serde_yaml",

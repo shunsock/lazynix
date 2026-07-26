@@ -13,23 +13,22 @@ pub fn update(d: &Deps) -> Result<i32, ApplicationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::UseCaseEvent;
     use crate::mocks::*;
 
     #[test]
     fn updates_the_lock_unconditionally() {
-        // Arrange
         let m = Mocks::with_missing_config();
 
-        // Act
         let code = update(&m.deps()).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert_eq!(m.nix.flake_update_calls(), 1);
         assert!(
-            m.out
-                .infos()
-                .contains(&"flake.lock updated successfully".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::LockUpdated))
         );
     }
 }

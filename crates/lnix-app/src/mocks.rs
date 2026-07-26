@@ -9,7 +9,6 @@ use std::cell::RefCell;
 use lnix_domain::interface::gateway::{
     EvalOutcome, NixEvaluator, NixRunner, ResolvedVersion, VersionResolver,
 };
-use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
     ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
 };
@@ -18,6 +17,8 @@ use lnix_domain::{
 };
 
 use crate::deps::Deps;
+use crate::event::UseCaseEvent;
+use crate::reporter::ReporterPort;
 
 pub(crate) fn config_from_yaml(yaml: &str) -> DevShellDefinition {
     serde_yaml::from_str(yaml).unwrap()
@@ -236,28 +237,19 @@ impl VersionResolver for StubResolver {
 }
 
 #[derive(Default)]
-pub(crate) struct RecordingOutput {
-    infos: RefCell<Vec<String>>,
-    warns: RefCell<Vec<String>>,
+pub(crate) struct RecordingReporter {
+    events: RefCell<Vec<UseCaseEvent>>,
 }
 
-impl OutputPort for RecordingOutput {
-    fn info(&self, message: &str) {
-        self.infos.borrow_mut().push(message.to_string());
-    }
-
-    fn warn(&self, message: &str) {
-        self.warns.borrow_mut().push(message.to_string());
+impl ReporterPort for RecordingReporter {
+    fn report(&self, event: &UseCaseEvent) {
+        self.events.borrow_mut().push(event.clone());
     }
 }
 
-impl RecordingOutput {
-    pub(crate) fn infos(&self) -> Vec<String> {
-        self.infos.borrow().clone()
-    }
-
-    pub(crate) fn warns(&self) -> Vec<String> {
-        self.warns.borrow().clone()
+impl RecordingReporter {
+    pub(crate) fn events(&self) -> Vec<UseCaseEvent> {
+        self.events.borrow().clone()
     }
 }
 
@@ -270,7 +262,7 @@ pub(crate) struct Mocks {
     pub(crate) nix: FakeNix,
     pub(crate) nix_eval: StubEvaluator,
     pub(crate) resolver: StubResolver,
-    pub(crate) out: RecordingOutput,
+    pub(crate) reporter: RecordingReporter,
 }
 
 impl Mocks {
@@ -310,7 +302,7 @@ impl Mocks {
             nix: FakeNix::default(),
             nix_eval: StubEvaluator::default(),
             resolver: StubResolver,
-            out: RecordingOutput::default(),
+            reporter: RecordingReporter::default(),
         }
     }
 
@@ -323,7 +315,7 @@ impl Mocks {
             nix: &self.nix,
             nix_eval: &self.nix_eval,
             resolver: &self.resolver,
-            out: &self.out,
+            reporter: &self.reporter,
         }
     }
 }

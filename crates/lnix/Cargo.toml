@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 lnix-app = { workspace = true }
+lnix-domain = { workspace = true }
 lnix-infra = { workspace = true }
 
 clap = { workspace = true }
