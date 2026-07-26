@@ -259,7 +259,7 @@ devShell:
 
 一度解決されれば、以降の実行はキャッシュされた解決結果を再利用します。ネットワーク参照の繰り返しもドリフトもありません。チームの誰もが正確に Go 1.21.13 を手に入れます。
 
-> **補足:** `lnix lint` は `stable` と `unstable` のパッケージだけを `nix eval` で検証し、`pinned` エントリは検証しません。pinned パッケージは現在のチャネルではなく過去の nixpkgs コミットに由来するため、現在のレジストリに対する `nix eval` では意味のある結果が得られないからです。
+> **補足:** `lnix lint` は `stable`・`unstable`・`pinned` のすべてのパッケージを検証します。`pinned` エントリで `resolvedCommit` / `resolvedAttr` が `lazynix.yaml` にまだキャッシュされていない場合、`lint` は `nix-versions` に問い合わせて指定されたバージョンが現在も解決可能かも確認します。バージョン指定のタイプミスは次の `lnix develop` を待たずにここで検出されます。
 
 ## 利用可能なバージョンを検索する
 

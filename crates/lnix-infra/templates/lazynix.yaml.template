@@ -4,11 +4,13 @@ devShell:
     stable:
       - name: hello
     unstable: []
-    # Optional: Pin a package to an exact version.
-    # Find candidates with: lnix search go -v '>=1.21,<1.22'
-    # After you run `lnix develop`, resolvedCommit / resolvedAttr are
-    # filled in automatically and written back to this file.
-    # pinned:
+    # Optional: Pin a package to a specific version (resolved via nix-versions).
+    # Each entry needs `name` and `version`, NOT a single string like `cowsay_3.0.0`.
+    # Find available versions with: lnix search <name>
+    # After the first `lnix develop`, resolvedCommit / resolvedAttr are filled
+    # in automatically and written back to this file.
+    # To use: replace `pinned: []` below with the commented entries (remove the # marks)
+    pinned: []
     #   - name: go
     #     version: "1.21.13"
   shellHook:

@@ -154,20 +154,31 @@ LazyNix will automatically:
 3. 🔒 Update `flake.lock` with pinned dependencies (with `--update`)
 4. 🚀 Enter the Nix development shell with all specified packages
 
+### 📝 Generate `flake.nix` Only
+
+Regenerate `flake.nix` from `lazynix.yaml` without entering a shell or running any commands:
+
+```bash
+lnix generate
+```
+
+Handy for CI validation, applying edits to `lazynix.yaml`, or preparing to migrate to Pure Nix. When no pinned packages are configured, this runs fully offline without invoking Nix.
+
 ## Commands Reference
 
-LazyNix ships eight subcommands. All commands accept the global flags
+LazyNix ships nine subcommands. All commands accept the global flags
 described below.
 
 | Subcommand | Description | Flags |
 |-----------|-------------|-------|
 | `init` | Create `lazynix.yaml` and `flake.nix` from templates | `--force` (`-f`) — overwrite existing files |
 | `update` | Update `flake.lock` without entering a shell | — |
+| `generate` | Regenerate `flake.nix` from `lazynix.yaml` without entering the shell | — |
 | `develop` | Generate `flake.nix` and enter `nix develop` | `--update` — update `flake.lock` first |
 | `run [--] <command>...` | Run a single command inside the dev environment | `--update`, `--no-regen` (skip regenerating `flake.nix`) |
 | `test` | Run test commands defined under `devShell.test:` | `--update` |
 | `task <name> [args...]` | Run a named task from `devShell.task:`; trailing args expand into `{{.CLI_ARGS}}` | — |
-| `lint` | Validate every stable/unstable package via `nix eval` | `--verbose` (`-v`), `--arch <target>` |
+| `lint` | Validate every declared package (stable + unstable + pinned) via `nix eval`, and verify pinned versions can still be resolved | `--verbose` (`-v`), `--arch <target>` |
 | `search <package>` | Look up available versions via `nix-versions` | `--version <semver>` (`-v`), `--json` (`-j`), `--one` (`-1`) |
 
 ### Global Flags
@@ -182,10 +193,10 @@ described below.
 - `lint` exits with code `1` when any package fails validation, otherwise `0`.
 - `run`, `task`, and `test` propagate the exit code of the underlying
   child process.
-- `lint` deliberately **excludes `pinned` packages from validation** —
-  only entries under `stable` and `unstable` are evaluated. Pinned
-  packages are checked at resolution time by `search` via
-  `nix-versions` instead.
+- `lint` validates `stable`, `unstable`, and `pinned` packages. For
+  `pinned` entries whose `resolvedCommit` / `resolvedAttr` are not
+  yet cached in `lazynix.yaml`, `lint` also asks `nix-versions`
+  whether the requested version can still be resolved.
 
 ## Configuration
 
@@ -367,8 +378,9 @@ lnix test
 
 When you need advanced Nix features, migration is seamless. LazyNix generates a standard `flake.nix`, so:
 
-1. 🗑️ Delete `lazynix.yaml`
-2. ✏️ Continue editing `flake.nix` directly
+1. ⚙️ Run `lnix generate` to produce the latest `flake.nix` from `lazynix.yaml`
+2. 🗑️ Delete `lazynix.yaml`
+3. ✏️ Continue editing `flake.nix` directly
 
 That's all! Your development environment keeps working without any changes.
 

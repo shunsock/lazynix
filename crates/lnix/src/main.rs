@@ -32,6 +32,7 @@ fn route(command: Commands, d: &Deps) -> Result<i32, ApplicationError> {
     match command {
         Commands::Init { force } => lnix_app::init(d, force),
         Commands::Update => lnix_app::update(d),
+        Commands::Generate => lnix_app::generate(d),
         Commands::Develop { update } => lnix_app::develop(d, update),
         Commands::Test { update } => lnix_app::test(d, update),
         Commands::Run {

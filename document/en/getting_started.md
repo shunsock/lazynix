@@ -259,7 +259,7 @@ devShell:
 
 Once resolved, subsequent runs reuse the cached resolution — no repeated network lookups, no drift. Every developer on your team gets exactly Go 1.21.13.
 
-> **Note:** `lnix lint` validates only `stable` and `unstable` packages via `nix eval`, and does not check `pinned` entries — pinned packages come from historical nixpkgs commits rather than the current channels, so `nix eval` against the current registry would not be meaningful.
+> **Note:** `lnix lint` validates `stable`, `unstable`, **and** `pinned` packages. For `pinned` entries whose `resolvedCommit` / `resolvedAttr` are not yet cached in `lazynix.yaml`, `lint` additionally asks `nix-versions` whether the requested version can still be resolved — so a typo in the version constraint is caught before the next `lnix develop`.
 
 ## Searching for Available Versions
 
