@@ -63,18 +63,19 @@ Let's look at the generated `lazynix.yaml`:
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
-      - hello
+      - name: hello
     unstable: []
+    pinned: []
   shellHook:
     - "echo Welcome to LazyNix DevShell!"
 ```
 
 This is the entire configuration. Let's break down what each field means:
 
-- **`allowUnfree`** --- Nix distinguishes between open-source and proprietary (unfree) packages. Set this to `true` if you need proprietary software like VS Code or CUDA toolkits. When set to `false`, only open-source packages are allowed.
+- **`allowUnfree`** --- Nix distinguishes between open-source and proprietary (unfree) packages. Defaults to `true`, which allows proprietary software like VS Code or CUDA toolkits. Set this to `false` to restrict to open-source packages only.
 - **`package.stable`** --- Packages sourced from a stable, well-tested snapshot of [nixpkgs](https://github.com/NixOS/nixpkgs) (the Nix package repository). Use this for most tools.
 - **`package.unstable`** --- Packages sourced from the latest nixpkgs. Use this when you need a cutting-edge version that has not yet reached the stable channel.
 - **`shellHook`** --- Shell commands that run automatically every time you enter the development environment. Useful for printing version info, setting up aliases, or running initialization scripts.
@@ -87,12 +88,13 @@ Suppose you are starting a Python project with [uv](https://docs.astral.sh/uv/) 
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
   shellHook:
     - "echo Python $(python --version) ready!"
     - "echo uv $(uv --version) ready!"
@@ -151,12 +153,13 @@ For commands you run repeatedly, you can define named tasks in `lazynix.yaml`:
 
 ```yaml
 devShell:
-  allowUnfree: false
+  allowUnfree: true
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
   shellHook:
     - "echo Python $(python --version) ready!"
 
@@ -188,9 +191,10 @@ If your project has test commands, you can define them directly in `lazynix.yaml
 devShell:
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
 
   test:
     - "python -m pytest"
@@ -217,6 +221,104 @@ lnix lint
 
 This checks each package using `nix eval` and reports any that cannot be found. It catches typos and non-existent package names before they cause a confusing error at build time.
 
+## Pinning Package Versions
+
+Sometimes the `stable` or `unstable` channel does not give you the exact version you need. For example, your team may want to standardize on Go 1.21.13 to match a production CI image, even after nixpkgs stable has moved on to a newer release. The `pinned` field solves this by fixing an individual package to a specific version, independent of the channels.
+
+Here is how to pin Go 1.21.13:
+
+1. Discover which versions are available (see the next section for details):
+
+```bash
+lnix search go -v '>=1.21,<1.22'
+```
+
+2. Add the version you want under `devShell.package.pinned`:
+
+```yaml
+devShell:
+  package:
+    stable:
+      - name: python312
+    pinned:
+      - name: go
+        version: "1.21.13"
+```
+
+3. Run `lnix develop`. LazyNix invokes `nix-versions` to look up the nixpkgs commit hash and Nix attribute path for that version, and the resolved metadata is written back to `lazynix.yaml` as `resolvedCommit` and `resolvedAttr`:
+
+```yaml
+devShell:
+  package:
+    pinned:
+      - name: go
+        version: "1.21.13"
+        resolvedCommit: "5ed6275"
+        resolvedAttr: "go_1_21"
+```
+
+Once resolved, subsequent runs reuse the cached resolution — no repeated network lookups, no drift. Every developer on your team gets exactly Go 1.21.13.
+
+> **Note:** `lnix lint` validates `stable`, `unstable`, **and** `pinned` packages. For `pinned` entries whose `resolvedCommit` / `resolvedAttr` are not yet cached in `lazynix.yaml`, `lint` additionally asks `nix-versions` whether the requested version can still be resolved — so a typo in the version constraint is caught before the next `lnix develop`.
+
+## Searching for Available Versions
+
+Before pinning a package, you need to know which versions are actually available in nixpkgs. That is what `lnix search` is for.
+
+Show every known version of a package as a table:
+
+```bash
+lnix search go
+```
+
+Filter with a semver constraint:
+
+```bash
+lnix search go -v '>=1.21,<1.22'
+```
+
+Get machine-readable output — useful in scripts and CI. `--one` returns only the newest matching entry:
+
+```bash
+lnix search go --json --one
+```
+
+The typical workflow is: run `lnix search` to discover an exact version, then paste it into `devShell.package.pinned` as described in the previous section.
+
+## Updating flake.lock
+
+`lnix develop --update` refreshes `flake.lock` and then enters the shell. When you only want to update the lock file — for example, in CI where you commit lock changes without ever entering the dev shell — use `lnix update` instead:
+
+```bash
+lnix update
+```
+
+This runs `nix flake update` and exits. It is a lightweight command that does not spawn an interactive shell or start any long-running process, so it fits naturally into automated pipelines and pre-commit hooks.
+
+Use `lnix develop --update` when you want to update the lock and start working immediately. Use `lnix update` when the lock refresh itself is the whole task.
+
+## Loading Shell Aliases
+
+Shell aliases like `alias ll='ls -la'` are convenient, but keeping them inline inside `shellHook` mixes concerns. `devShell.shellAlias` lets you point at one or more external alias files, and LazyNix extracts every `alias …` line and evaluates them when the dev shell starts.
+
+```yaml
+devShell:
+  package:
+    stable:
+      - name: bash
+  shellAlias:
+    - ./aliases.sh
+    - ~/.bash_aliases
+```
+
+Path resolution happens at shell start-up, not at flake-generation time:
+
+- Relative paths (e.g. `./aliases.sh`) resolve against `$PWD`.
+- `~/` expands to `$HOME`.
+- Absolute paths are used as-is.
+
+If a referenced file does not exist at start-up, LazyNix silently skips it — so you can list optional personal alias files (like `~/.bash_aliases`) without breaking teammates who do not have them.
+
 ## What You Have Learned
 
 In this guide, you have:
@@ -227,6 +329,10 @@ In this guide, you have:
 - Entered the environment with `lnix develop`
 - Run commands with `lnix run` and defined reusable tasks
 - Validated your configuration with `lnix lint`
+- Pinned an individual package to a specific version with `devShell.package.pinned`, letting LazyNix populate `resolvedCommit` and `resolvedAttr`
+- Discovered available versions with `lnix search`
+- Refreshed `flake.lock` in isolation with `lnix update`
+- Loaded shell aliases from external files with `devShell.shellAlias`
 
 ## Next Steps
 

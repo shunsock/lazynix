@@ -25,4 +25,4 @@ pub use deps::Deps;
 pub use error::ApplicationError;
 pub use event::UseCaseEvent;
 pub use reporter::ReporterPort;
-pub use usecase::{develop, init, lint, run, search, task, test, update};
+pub use usecase::{develop, generate, init, lint, run, search, task, test, update};

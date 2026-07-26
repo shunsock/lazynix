@@ -15,6 +15,7 @@ fn test_help_message() {
         .stdout(predicate::str::contains("develop"))
         .stdout(predicate::str::contains("test"))
         .stdout(predicate::str::contains("update"))
+        .stdout(predicate::str::contains("generate"))
         .stdout(predicate::str::contains("run"))
         .stdout(predicate::str::contains("task"))
         .stdout(predicate::str::contains("lint"));
@@ -73,6 +74,7 @@ fn test_help_shows_all_commands() {
             .and(predicate::str::contains("develop"))
             .and(predicate::str::contains("test"))
             .and(predicate::str::contains("update"))
+            .and(predicate::str::contains("generate"))
             .and(predicate::str::contains("run"))
             .and(predicate::str::contains("task"))
             .and(predicate::str::contains("lint")),

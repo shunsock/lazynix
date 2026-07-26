@@ -52,12 +52,12 @@ lnix develop
 
 ### 📦 Pre-built Binaries
 
-Download platform-specific binaries from [GitHub Releases](https://github.com/shunsock/LazyNix/releases).
+Download platform-specific binaries from [GitHub Releases](https://github.com/shunsock/lazynix/releases).
 
 #### 🐧 Linux x86_64
 
 ```bash
-curl -L -o lnix https://github.com/shunsock/LazyNix/releases/latest/download/lnix-x86_64-linux
+curl -L -o lnix https://github.com/shunsock/lazynix/releases/latest/download/lnix-x86_64-linux
 chmod +x lnix
 sudo mv lnix /usr/local/bin/
 ```
@@ -65,7 +65,7 @@ sudo mv lnix /usr/local/bin/
 #### 🐧 Linux ARM64
 
 ```bash
-curl -L -o lnix https://github.com/shunsock/LazyNix/releases/latest/download/lnix-aarch64-linux
+curl -L -o lnix https://github.com/shunsock/lazynix/releases/latest/download/lnix-aarch64-linux
 chmod +x lnix
 sudo mv lnix /usr/local/bin/
 ```
@@ -73,7 +73,7 @@ sudo mv lnix /usr/local/bin/
 #### 🍎 macOS Apple Silicon
 
 ```bash
-curl -L -o lnix https://github.com/shunsock/LazyNix/releases/latest/download/lnix-aarch64-darwin
+curl -L -o lnix https://github.com/shunsock/lazynix/releases/latest/download/lnix-aarch64-darwin
 chmod +x lnix
 sudo mv lnix /usr/local/bin/
 ```
@@ -118,9 +118,10 @@ devShell:
 
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
 
   shellHook:
     - "echo Python $(python --version) ready!"
@@ -152,6 +153,50 @@ LazyNix will automatically:
 2. 🔧 Generate the `flake.nix` file
 3. 🔒 Update `flake.lock` with pinned dependencies (with `--update`)
 4. 🚀 Enter the Nix development shell with all specified packages
+
+### 📝 Generate `flake.nix` Only
+
+Regenerate `flake.nix` from `lazynix.yaml` without entering a shell or running any commands:
+
+```bash
+lnix generate
+```
+
+Handy for CI validation, applying edits to `lazynix.yaml`, or preparing to migrate to Pure Nix. When no pinned packages are configured, this runs fully offline without invoking Nix.
+
+## Commands Reference
+
+LazyNix ships nine subcommands. All commands accept the global flags
+described below.
+
+| Subcommand | Description | Flags |
+|-----------|-------------|-------|
+| `init` | Create `lazynix.yaml` and `flake.nix` from templates | `--force` (`-f`) — overwrite existing files |
+| `update` | Update `flake.lock` without entering a shell | — |
+| `generate` | Regenerate `flake.nix` from `lazynix.yaml` without entering the shell | — |
+| `develop` | Generate `flake.nix` and enter `nix develop` | `--update` — update `flake.lock` first |
+| `run [--] <command>...` | Run a single command inside the dev environment | `--update`, `--no-regen` (skip regenerating `flake.nix`) |
+| `test` | Run test commands defined under `devShell.test:` | `--update` |
+| `task <name> [args...]` | Run a named task from `devShell.task:`; trailing args expand into `{{.CLI_ARGS}}` | — |
+| `lint` | Validate every declared package (stable + unstable + pinned) via `nix eval`, and verify pinned versions can still be resolved | `--verbose` (`-v`), `--arch <target>` |
+| `search <package>` | Look up available versions via `nix-versions` | `--version <semver>` (`-v`), `--json` (`-j`), `--one` (`-1`) |
+
+### Global Flags
+
+- `-C, --config-dir <DIR>` — directory containing `lazynix.yaml` and
+  `lazynix-settings.yaml` (env: `LAZYNIX_CONFIG_DIR`, default: current
+  directory)
+- `--version` — print the CLI version and exit
+
+### Exit Codes and Notes
+
+- `lint` exits with code `1` when any package fails validation, otherwise `0`.
+- `run`, `task`, and `test` propagate the exit code of the underlying
+  child process.
+- `lint` validates `stable`, `unstable`, and `pinned` packages. For
+  `pinned` entries whose `resolvedCommit` / `resolvedAttr` are not
+  yet cached in `lazynix.yaml`, `lint` also asks `nix-versions`
+  whether the requested version can still be resolved.
 
 ## Configuration
 
@@ -201,6 +246,121 @@ By default, LazyNix uses `nixos-25.11` for stable packages. You can override thi
 override-stable-package: "github:myorg/nixpkgs/custom-branch"
 ```
 
+`override-stable-package` only affects the **stable** channel; the
+unstable channel is hardcoded to `github:NixOS/nixpkgs/nixos-unstable`.
+
+### 📌 Version Pinning
+
+The `devShell.package.pinned` list lets you pin a package to an exact
+version, resolved through `nix-versions` and locked into the generated
+flake. This is the recommended way to control language runtimes such
+as `go`, `node`, or `python` down to the patch level.
+
+Workflow:
+
+1. Find a candidate version:
+
+   ```bash
+   lnix search go -v '>=1.21,<1.22'
+   ```
+
+2. Add the resolved name and version to `lazynix.yaml`:
+
+   ```yaml
+   devShell:
+     package:
+       stable:
+         - name: python312
+       pinned:
+         - name: go
+           version: "1.21.13"
+   ```
+
+3. Run `lnix develop` (or `run`/`test`). LazyNix resolves the pinned
+   entry via `nix-versions`, populates `resolvedCommit` and
+   `resolvedAttr` in the same list entry, and the resolved values are
+   **written back to `lazynix.yaml`** automatically:
+
+   ```yaml
+   devShell:
+     package:
+       pinned:
+         - name: go
+           version: "1.21.13"
+           resolvedCommit: "5ed6275"
+           resolvedAttr: "go_1_21"
+   ```
+
+   Subsequent commands reuse the already-resolved entry and skip the
+   network round-trip.
+
+### 🔤 Shell Aliases
+
+Alias definitions can be sourced from external files via
+`devShell.shellAlias`. Each entry is a path — relative, absolute, or
+`~`-prefixed — to a shell script whose alias definitions will be
+loaded into the dev shell.
+
+```yaml
+devShell:
+  allowUnfree: true
+  package:
+    stable:
+      - name: bash
+  shellAlias:
+    - ./aliases.sh
+    - ~/.bash_aliases
+    - /etc/aliases.sh
+```
+
+Relative paths are resolved against `$PWD`; `~` is expanded to the
+user's home directory; absolute paths are used as-is.
+
+### 🧩 Tasks and Tests
+
+Two related sections describe reusable commands that run inside the
+dev shell:
+
+- `devShell.test` — a flat list of shell commands. `lnix test` runs
+  them in order and stops on the first failure. Use this for smoke
+  tests you want to run without remembering a task name.
+- `devShell.task` — a named map of workflows, each with an optional
+  `description` and a list of `commands`. Run a task with
+  `lnix task <name>`. Any trailing arguments are substituted into the
+  `{{.CLI_ARGS}}` placeholder inside the task's commands, so a single
+  task can accept variable arguments.
+
+```yaml
+devShell:
+  allowUnfree: true
+  package:
+    stable:
+      - name: python312
+      - name: uv
+
+  task:
+    fmt:
+      description: "Format Python sources"
+      commands:
+        - "uv run ruff format ."
+    review:
+      description: "Run a specific pytest, forwarded via CLI_ARGS"
+      commands:
+        - "uv run pytest {{.CLI_ARGS}}"
+
+  test:
+    - "uv run pytest"
+    - "uv run mypy src/"
+```
+
+Example invocations:
+
+```bash
+lnix task fmt
+lnix task review tests/test_api.py::test_auth   # expands into {{.CLI_ARGS}}
+lnix test
+```
+
 ## Design Philosophy
 
 ### ✅ What LazyNix Does
@@ -218,8 +378,9 @@ override-stable-package: "github:myorg/nixpkgs/custom-branch"
 
 When you need advanced Nix features, migration is seamless. LazyNix generates a standard `flake.nix`, so:
 
-1. 🗑️ Delete `lazynix.yaml`
-2. ✏️ Continue editing `flake.nix` directly
+1. ⚙️ Run `lnix generate` to produce the latest `flake.nix` from `lazynix.yaml`
+2. 🗑️ Delete `lazynix.yaml`
+3. ✏️ Continue editing `flake.nix` directly
 
 That's all! Your development environment keeps working without any changes.
 

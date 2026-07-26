@@ -1,6 +1,6 @@
 # システムアーキテクチャ
 
-LazyNixは4つのクレートからなるRustワークスペースとして構成されています。各クレートは明確に定義された単一の責務を持ち、依存関係はCLIエントリーポイントから下位のライブラリへと一方向に流れます。この章では、各クレートの役割、それらの接続方法、コマンド実行時のデータフローを説明します。
+LazyNix は 4 つのクレートからなる Rust ワークスペースです。各クレートは単一の責務を持ち、依存関係は CLI から純粋なドメインコアへと一方向に流れます。この章では、各クレートの役割、ポートとアダプタによる接続方法、設定データの構造、そして 1 回の `lnix develop` 実行がレイヤーをどう通過するかを説明します。
 
 ## アーキテクチャ概要
 
@@ -8,197 +8,204 @@ LazyNixは4つのクレートからなるRustワークスペースとして構�
 
 ```
 crates/
-  lnix/                  # エントリーポイントとコマンドルーティング
-    templates/           # lnix init用のテンプレートファイル
-  lnix-flake-generator/  # YAML解析とflake.nix生成
-  lnix-linter/           # nix evalによるパッケージ検証
-  lnix-nix-dispatcher/   # Nixコマンドの実行
+  lnix/          # バイナリ: CLI エントリーポイント (clap 解析 + コンポジションルート)
+  lnix-app/      # ライブラリ: ユースケース (init/update/generate/develop/run/test/task/lint/search)
+  lnix-domain/   # ライブラリ: 純粋ドメイン — 定義、サービス、ポート、値オブジェクト
+  lnix-infra/    # ライブラリ: アダプタ — ファイルシステム、nix サブプロセス、nix-versions、stdout
 ```
 
-依存グラフは厳密にトップダウンに流れます:
+設計はヘキサゴナル (「ポートとアダプタ」) レイアウトに従います。`lnix-domain` は最内層で、I/O を一切行いません。`lnix-app` は `lnix-domain` に定義されたトレイト (ポート) のみを介してユースケースをオーケストレーションします。`lnix-infra` は具象アダプタを提供し、`lnix` バイナリはすべてを配線するコンポジションルートです。
 
-```
-              cli
-           /   |   \
-          v    v    v
-  flake-     linter   nix-
-  generator             dispatcher
-```
+## クレート構成
 
-`cli` は3つのライブラリクレートすべてに依存します。ライブラリクレート同士は互いに依存しません。このフラットな依存構造により、モジュールは疎結合に保たれます。Nixコマンドの実行方法（`nix-dispatcher`）を変更しても、YAMLの解析方法（`flake-generator`）には影響せず、その逆も同様です。
+### lnix
 
-## cli
+**クレート:** `lnix` (バイナリ)
+**責務:** CLI 引数の解析、およびコンポジションルートとしての役割。
 
-**クレート:** `lnix`（バイナリ）
-**責務:** CLI引数の解析、サブコマンドのオーケストレーション、他クレートの調整。
-
-`cli` クレートはワークスペース内の唯一のバイナリです。[clap](https://docs.rs/clap/) を使って `lnix` コマンドとそのサブコマンドを定義しています:
+`lnix` は [clap](https://docs.rs/clap/) を用いて `lnix` コマンドとそのサブコマンドを定義します:
 
 | サブコマンド | 説明 |
 |------------|------|
-| `init`     | テンプレートから `lazynix.yaml` と `flake.nix` を作成 |
-| `develop`  | `flake.nix` を生成しNix開発シェルに入る |
-| `run`      | 開発環境内でコマンドを実行 |
-| `test`     | `lazynix.yaml` で定義されたテストコマンドを実行 |
-| `task`     | `lazynix.yaml` で定義された名前付きタスクを実行 |
-| `update`   | `flake.lock` を更新 |
-| `lint`     | `nix eval` でパッケージを検証 |
+| `init`     | 同梱テンプレートから `lazynix.yaml` と初期ファイルを生成 |
+| `update`   | シェルに入らずに `flake.lock` を更新 |
+| `generate` | シェルに入らずに `lazynix.yaml` から `flake.nix` を再生成 |
+| `develop`  | `flake.nix` を再生成し `nix develop` に入る |
+| `run`      | 開発シェル内で単一のコマンドを実行 |
+| `test`     | `lazynix.yaml` の `test` に定義されたコマンドを実行 |
+| `task`     | `task` セクションに定義された名前付きタスクを実行 |
+| `lint`     | stable / unstable / pinned のすべてのパッケージを `nix eval` で検証し、pinned のバージョン解決可否も確認 |
+| `search`   | nix-versions を用いて利用可能なバージョンを検索 |
 
-各サブコマンドは同じパターンに従います:
+バイナリ自体にビジネスロジックはありません。`main.rs` は引数を解析し、`AdapterSet` (コンポジションルート) を組み立て、それらを `lnix_app::Deps` バンドルに借用させ、`lnix-app` の対応するユースケースにディスパッチします。
 
-1. 設定を読み込む（`flake-generator` 経由）
-2. 設定を検証する
-3. 必要に応じて `flake.nix` を生成する（`flake-generator` 経由）
-4. Nixコマンドを実行する（`nix-dispatcher` 経由）
+### lnix-app
 
-`cli` クレートにはビジネスロジックがありません。ライブラリクレートに作業を委譲する薄い調整レイヤーです。エラーハンドリングは鉄道パターンに従います。各ステップは `Result` を返し、エラーは `main()` まで伝播し、そこで表示されて終了コードに変換されます。
+**クレート:** `lnix-app` (ライブラリ)
+**責務:** ドメインのポートに対してユースケースをオーケストレーションする。
 
-### 主要モジュール
+各サブコマンドは `usecase/` 配下の `fn(&Deps, ...) -> Result<i32, ApplicationError>` 形状の関数に対応します。`Deps` は、ユースケースが触れうるすべてのポートを借用でまとめたバンドルで、`ConfigRepository`、`FlakeWriter`、`EnvFilePresenceChecker`、`ProjectScaffolder`、`NixRunner`、`NixEvaluator`、`VersionResolver`、`OutputPort` を含みます。
 
-- `cli_parser.rs` --- clapのderiveマクロで `Cli` 構造体と `Commands` 列挙型を定義。
-- `commands/` --- 独立したモジュールが必要なほど複雑なサブコマンドの実装（例: `lint`）。
-- `env_validator.rs` --- 環境変数設定の検証（dotenvファイルの存在確認など）。
-- `task_interpolator.rs` --- CLI引数をタスクコマンドテンプレートに展開。
+`flake.nix` を生成するユースケース (`develop` / `test` / `run`) は、`pipeline.rs` に定義された共通の前段を共有します:
 
-## flake-generator
+1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `OutputPort::warn` に流す)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決とその結果の `lazynix.yaml` への書き戻し。
+2. `write_flake` — `lnix_domain::render_flake` を呼び出し、結果を `./flake.nix` に書き込む。
+3. `maybe_update_lock` — `--update` が指定されているときのみ `NixRunner::flake_update` を呼び出す。
 
-**クレート:** `lnix-flake-generator`（ライブラリ）
-**責務:** `lazynix.yaml` の解析と `flake.nix` コンテンツの生成。
+エラーは鉄道パターンで合成されます。各ステップは `Result` を返し、ドメインの絞られたエラーは `#[from]` によって `ApplicationError` に持ち上げられるため、ユースケース本体は直線的なままで、`?` が失敗を `main()` まで短絡させます。
 
-このクレートは、YAMLからNixへの中核的な変換を担います。3つのパブリック関数を公開しています:
+### lnix-domain
 
-```rust
-// lazynix.yamlをConfig構造体に解析
-let parser = LazyNixParser::new(config_dir);
-let config: Config = parser.read_config()?;
+**クレート:** `lnix-domain` (ライブラリ)
+**責務:** 純粋なドメイン。I/O を持たず、依存は `serde` と `thiserror` のみ。
 
-// Configを検証（空のパッケージ、無効な名前などをチェック）
-validate_config(&config)?;
+ドメインは 4 つのサブモジュールに分かれます:
 
-// Configをflake.nix文字列にレンダリング
-let flake_content: String = render_flake(&config, override_url);
+- `definition/` — 設定 AST: `DevShellDefinition`、`DevShell`、`Package`、`PackageEntry`、`PinnedPackageEntry`、`Env`、`EnvVar`、`TaskDef`、`Settings`。加えて `validate_config` は、非致命の指摘を `Diagnostic` 値として返し、致命的な違反は `ValidationError` として返します。
+- `values/` — 構築時に不変条件を検証する値オブジェクト: `PackageName`、`PackageVersion`、`TaskName`、`EnvVarName`、`RegistryUrl`。下流コードで不正な値を表現不可能にすると同時に、生成される Nix 式や起動されるサブプロセスへ流れる値に対するシェルインジェクション対策も兼ねます。
+- `service/` — 純粋なドメインサービス: `flake::render_flake` (`DevShellDefinition` を `flake.nix` 文字列に変換)、`lint::*` (生の `nix eval` エラーを分類して検証レポートを整形)、`task::interpolate_command` (CLI 引数をタスクテンプレートに展開)。
+- `interface/` — ポート。トレイトは `interface::persistence` (`ConfigRepository`、`FlakeWriter`、`EnvFilePresenceChecker`、`ProjectScaffolder`)、`interface::gateway` (`NixRunner`、`NixEvaluator`、`VersionResolver`)、`interface::output` (`OutputPort`) に分類されます。
+
+### lnix-infra
+
+**クレート:** `lnix-infra` (ライブラリ)
+**責務:** ドメインポートに対する具象アダプタ。
+
+`lnix_domain::interface` で宣言されたすべてのトレイトが、ここで実装されます:
+
+- `persistence/` — ファイルシステムアダプタ (`ConfigRepository`、`FlakeWriter`、`EnvFilePresenceChecker`、`ProjectScaffolder`)。すべてのパスは `WorkspacePaths` を起点とし、どのアダプタも暗黙にカレントディレクトリを読みません。
+- `gateway/` — `nix` および `nix-versions` を呼び出すサブプロセスアダプタ。2 つの内部ヘルパー (対話コマンド用の `run_inherit` と、出力を取り込む `run_capture`) に stdio 配線とエラーマッピングを集約しています。
+- `output/` — `OutputPort` を実装するターミナルシンク。
+
+`lnix-infra` は `lnix init` で使用されるテンプレートも同梱しています。
+
+## 依存方向と依存性逆転
+
+依存グラフは、単一の逆転を含む直線構造です:
+
+```
+lnix  ─►  lnix-app  ─►  lnix-domain  ◄─  lnix-infra
 ```
 
-### データモデル
+- `lnix` はコンポジションルートでのみ `lnix-app` と `lnix-infra` に依存します。
+- `lnix-app` は `lnix-domain` にのみ依存します。具象アダプタを名指しせず、トレイトオブジェクト (`&dyn ConfigRepository`、`&dyn NixRunner` など) に対してのみ話しかけます。
+- `lnix-domain` は内部のどのクレートにも依存しません。ポートを定義する側です。
+- `lnix-infra` は `lnix-domain` に依存し、そのポートを実装します。矢印が「逆向き」に描かれているのは意図的で、これがドメインを単体で試験可能に保つ **依存性逆転** です。
 
-`Config` 構造体は `lazynix.yaml` の構造を反映しています:
+ポートがトレイトであるため、ユースケースのテストは `&dyn` 参照でフェイクを持たせた `Deps` を組み立てるだけで差し替えられます。本番とテストでユースケースコードは変わりません。
+
+## データモデル
+
+`DevShellDefinition` は `lazynix.yaml` のルートです:
 
 ```
-Config
+DevShellDefinition
   └── DevShell
-        ├── allow_unfree: bool
-        ├── Package { stable, unstable }
-        ├── shell_hook: Vec<String>
-        ├── env: Env { dotenv, envvar }
-        ├── test: Vec<String>
-        └── task: HashMap<String, TaskDef>
+        ├── allowUnfree:  bool                     (デフォルト: true)
+        ├── package: Package
+        │     ├── stable:   Vec<PackageEntry>              # { name: PackageName }
+        │     ├── unstable: Vec<PackageEntry>              # { name: PackageName }
+        │     └── pinned:   Vec<PinnedPackageEntry>        # { name, version, resolvedCommit?, resolvedAttr? }
+        ├── shellHook:   Vec<String>
+        ├── env:         Option<Env>                       # { dotenv: Vec<String>, envvar: Vec<EnvVar> }
+        ├── test:        Vec<String>
+        ├── task:        Option<HashMap<TaskName, TaskDef>>
+        └── shellAlias:  Vec<String>                       # エイリアス定義を読み込む対象ファイル
 ```
 
-パーサーは [serde](https://serde.rs/) を使ってYAMLをこの構造体にデシリアライズします。ジェネレーターはこの構造体を走査して `flake.nix` 文字列を生成します。中間表現はありません。データモデルから出力文字列への変換は直接的です。
+新しめのフィールドに関する補足:
 
-### 検証
+- `pinned` はパッケージを厳密なバージョンに固定します。`resolvedCommit` と `resolvedAttr` は、パイプラインが `VersionResolver` 経由で初めて解決した際に埋められ、以降の実行で再解決を避けるために `lazynix.yaml` に書き戻されます。
+- `shellAlias` は、シェルエイリアスの定義を開発シェルへロードする対象ファイルの一覧です。
+- `env.envvar[].name` は `EnvVarName`、`task` のキーは `TaskName` の値オブジェクトで、不正な識別子は YAML パース時点で拒否されます。
 
-`validate_config` は、YAMLの構文だけでは強制できない制約をチェックします:
+中間表現は別に存在しません。`render_flake` は `DevShellDefinition` を直接走査して `flake.nix` 文字列を生成します。
 
-- 少なくともひとつのパッケージが宣言されていること
-- パッケージ名が空文字列でないこと
-- stableとunstableにまたがる重複パッケージ名の検出
+## 検証ルール
 
-検証は生成の前に実行されるため、無効な設定が `flake.nix` を生成することはありません。
+`lnix_domain::validate_config` は、値オブジェクトでは表現できないフィールド間の制約を検査します。フィールド単位の不変条件 (パッケージ名の構文、バージョンの非空、タスク名・環境変数名の構文) は、serde が値オブジェクトを構築する時点で既に強制されているため、`validate_config` は残りの関係だけを検査します。
 
-## linter
+結果は 2 通りです:
 
-**クレート:** `lnix-linter`（ライブラリ）
-**責務:** ユーザーがシェルに入る前に、宣言されたパッケージがnixpkgsに存在することを検証する。
+- **致命的エラー** — `ValidationError::EmptyTaskCommands(name)`。タスクの `commands` が空のとき返り、パイプラインは `flake.nix` をレンダリングする前に停止します。
+- **非致命の診断** — `Diagnostic::NoPackages`。`stable` / `unstable` / `pinned` がすべて空のときに返ります。`validate_config` はデータとして返し、`pipeline::load_config` が `OutputPort::warn` に転送して実行は継続します。
 
-リンターは `nix eval` を使って、`lazynix.yaml` の各パッケージが解決可能かどうかをチェックします。タイプミスやプラットフォーム非互換のパッケージを早期にキャッチし、遅い `nix develop` の実行が失敗するのを待つ必要をなくします。
+追加の不変条件は他の箇所で強制されます:
 
-```
-入力: パッケージ名 + ターゲットアーキテクチャ
-  │
-  ├── nix_eval::eval_package()     # 各パッケージに対してnix evalを実行
-  ├── error_classifier::classify() # nix evalの失敗を分類
-  ├── validator::validate()        # 結果を集約
-  └── reporter::format()           # 人間が読める出力をフォーマット
-```
-
-### 主要な設計判断
-
-- **並列評価。** リンターは [rayon](https://docs.rs/rayon/) を使って複数パッケージを並行に評価します。`lazynix.yaml` が多くのパッケージを宣言している場合に重要です。
-- **エラー分類。** 生の `nix eval` エラーをカテゴリ（パッケージが見つからない、属性パスエラー、アーキテクチャ非互換）に解析し、Nix評価出力の壁ではなくアクション可能なメッセージをユーザーに提供します。
-- **アーキテクチャ対応。** デフォルトではリンターは現在のシステムアーキテクチャでパッケージをチェックします。`--arch` フラグにより、異なるターゲットでのチェックが可能です（例: `aarch64-darwin` マシンから `x86_64-linux` 向けの設定が動作するか検証）。
-
-## nix-dispatcher
-
-**クレート:** `lnix-nix-dispatcher`（ライブラリ）
-**責務:** Nixコマンドをサブプロセスとして実行する。
-
-このクレートは、LazyNixとNix CLIの間にクリーンなインターフェースを提供します。Nixプロセスの起動、終了コードの処理、エラーの報告に関する詳細を抽象化します。
-
-パブリックAPIは関数のセットです:
-
-| 関数 | 動作 |
-|------|------|
-| `run_nix_develop()` | 対話的な `nix develop` シェルに入る |
-| `run_nix_develop_command(args)` | `nix develop` 内で単一コマンドを実行 |
-| `run_flake_update()` | `nix flake update` を実行 |
-| `run_nix_test()` | `LAZYNIX_TEST_MODE=1` でテストコマンドを実行 |
-| `run_task_in_nix_env(commands)` | 複数コマンドを順次実行 |
-
-各関数は適切な `nix` コマンドを構築し、サブプロセスとして起動し、終了コードを返します。このクレートはNixコマンドの出力を解釈しません。成功か失敗かだけを扱います。
-
-### エラーハンドリング
-
-すべての関数は `Result<T, NixDispatcherError>` を返します。エラー型は2つのケースをカバーします:
-
-- **コマンドが見つからない。** `nix` バイナリが `PATH` 上にない。
-- **実行失敗。** サブプロセスを起動できなかった（権限拒否など）。
-
-`nix` からのゼロ以外の終了コードは、Rustの意味でのエラーとして扱われないことに注意してください。値（`i32`）として返されるため、呼び出し側がその処理を決定できます。典型的には `lnix` プロセスの終了コードとしてそのまま転送されます。
+- `pipeline::validate_env_files` は、`env.dotenv` が参照するファイルが存在しないときに失敗します。
+- 値オブジェクトのパーサー (`PackageName`、`PackageVersion`、`TaskName`、`EnvVarName`) は構文的に不正な入力をパース時に弾き、そのことが最終的に生成される Nix 式や起動されるサブプロセスへのシェルインジェクション対策も兼ねています。
 
 ## データフロー
 
-全体を結びつけるために、`lnix develop` を実行したときに何が起こるかを示します:
+`lnix develop` を実行したときの流れを示します:
 
 ```
-ユーザーが実行: lnix develop
+ユーザーが実行: lnix develop [--update]
   │
-  1. cli が引数を解析（clap）
+  1. lnix (バイナリ) が clap で引数を解析。
   │
-  2. cli が lazynix-settings.yaml を読み込み（任意）
-  │   └── stableパッケージに使用するnixpkgsバージョンを
-  │       上書きするためのオプションファイル（例: カスタムフォークの指定）。
-  │       ほとんどのユーザーはこのファイルを必要としない。
+  2. lnix が AdapterSet を組み立て、lnix_app::Deps バンドルへ借用させ、
+     lnix_app::develop にディスパッチ。
   │
-  3. flake-generator が lazynix.yaml を読み込み
-  │   └── Config構造体にデシリアライズ
+  3. lnix_app::pipeline::load_config
+       ├── ConfigRepository::read_settings         (任意の lazynix-settings.yaml)
+       ├── ConfigRepository::read_config           (lazynix.yaml → DevShellDefinition)
+       ├── lnix_domain::validate_config            (診断 → OutputPort::warn)
+       ├── validate_env_files                      (dotenv ファイルの存在確認)
+       └── resolve_pinned_packages                 (VersionResolver::resolve →
+                                                    lazynix.yaml への書き戻し)
   │
-  4. flake-generator が Config を検証
-  │   └── パッケージが空または無効な場合はエラーを返す
+  4. lnix_app::pipeline::write_flake
+       └── lnix_domain::render_flake → FlakeWriter::write_flake
   │
-  5. cli が env設定を検証
-  │   └── 参照された .env ファイルの存在を確認
+  5. lnix_app::pipeline::maybe_update_lock          (--update 指定時のみ)
+       └── NixRunner::flake_update
   │
-  6. flake-generator が flake.nix をレンダリング
-  │   └── 生成した文字列を ./flake.nix に書き込み
-  │
-  7. nix-dispatcher が nix flake update を実行（--update 指定時）
-  │
-  8. nix-dispatcher が nix develop を実行
-  │   └── 現在のプロセスを対話的シェルに置き換え
-  │
-  ユーザーは開発環境の中にいる。
+  6. NixRunner::develop                             (`nix develop` を exec し、
+                                                     現在のプロセスを置き換える)
 ```
 
-各ステップは成功して次に制御を渡すか、エラーを返して `main()` まで伝播させるかのどちらかです。リトライも、フォールバックも、隠れた状態もありません。フローは線形で予測可能です。
+各ステップは、成功して次に制御を渡すか、`Result::Err` を返して `ApplicationError` に持ち上げられ `main()` で表示されるかのいずれかです。リトライも、フォールバックも、隠れた状態もありません。
 
 ## まとめ
 
 | クレート | 種別 | 責務 |
 |---------|------|------|
-| `cli` | バイナリ | 引数解析、コマンドオーケストレーション |
-| `flake-generator` | ライブラリ | YAML解析、検証、Nixコード生成 |
-| `linter` | ライブラリ | `nix eval` によるパッケージ存在検証 |
-| `nix-dispatcher` | ライブラリ | サブプロセスとしてのNixコマンド実行 |
+| `lnix`        | バイナリ | CLI 解析とコンポジションルート |
+| `lnix-app`    | ライブラリ | ユースケースとポートに対するパイプラインオーケストレーション |
+| `lnix-domain` | ライブラリ | 定義、値オブジェクト、純粋サービス、ポートトレイト |
+| `lnix-infra`  | ライブラリ | ファイルシステム、`nix`、`nix-versions`、stdout のアダプタ |
 
-依存関係は一方向に流れます。ライブラリクレート同士は互いに依存しません。各クレートは独立して理解、テスト、変更できます。
+依存関係は `lnix` から `lnix-domain` へと一方向に流れ、`lnix-infra` はポートトレイトによる逆転した矢印を介して `lnix-domain` と接続されます。各クレートは独立して理解、テスト、変更できます。
+
+## サンプルと生成物
+
+`examples/` ディレクトリには実際に動作するサンプルが並んでいます。読者が参照するファイルは 2 つです。
+
+- `lazynix.yaml` --- ユーザーが手で書く入力
+- `flake.nix` --- その入力から `lnix` が生成する出力
+
+両方をリポジトリにコミットしています。これは意図した設計判断です。単なる取り残しではありません。
+
+### 生成物である `flake.nix` をコミットする理由
+
+LazyNix の約束は、生成された `flake.nix` を真実の情報源にできることです。プロジェクトを純粋な Nix へシームレスに移行できます。この約束は、読者がリポジトリを開いてはじめて説得力を持ちます。実際に出力される Nix コードを、元となる YAML と並べて読めるからです。生成物を `.gitignore` で隠すと、設計思想を裏付ける成果物そのものが見えなくなります。サンプルは「生成される Nix コードとは何か」を実物で示す実行可能なドキュメントです。
+
+### トレードオフ: 入力と出力の乖離
+
+生成物のコミットにはよく知られたリスクがあります。ジェネレーターを変更したら、対応するサンプルを再生成しなければなりません。忘れると `lazynix.yaml` と `flake.nix` はずれます。LazyNix はこのリスクを CI ワークフロー `.github/workflows/verify_examples_sync.yml` で緩和します。このワークフローは全サンプルディレクトリで `flake.nix` を再生成します。差分が出た時点でビルドを失敗させます。守るべき不変条件は「コミット済みの `flake.nix` と `lnix` の出力の一致」です。これを信頼ではなく CI が強制します。
+
+### コントリビュータへの注意
+
+フレイクジェネレーター（`crates/lnix-domain/src/service/flake/`）を変更したら、コミット前に必ず全サンプルを再生成してください。リポジトリのルートから次のように実行します。
+
+```bash
+lnix -C examples/python generate
+# examples/ の各サブディレクトリに対して繰り返す
+```
+
+この手順を忘れると同期検証の CI ジョブが失敗します。生成された `flake.nix` を手で編集してはいけません。ファイル先頭の `# Generated by LazyNix - DO NOT EDIT MANUALLY` ヘッダのとおり、変更は `lazynix.yaml` に加えます。`lnix` を再実行して対応する `flake.nix` を生成し直します。
+
+## 補足
+
+この概要より踏み込んだ設計文書は `document/jp/design/` 配下に置き、現状は日本語のみ提供しています。ピニング周りの詳細は例として `document/jp/design/version-pinning.md` を参照してください。
