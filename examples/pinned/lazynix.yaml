@@ -1,0 +1,19 @@
+devShell:
+  allowUnfree: true
+  package:
+    stable:
+    - name: python312
+    - name: uv
+    unstable: []
+    pinned:
+    - name: go
+      version: 1.21.13
+      resolvedCommit: 5ed6275
+      resolvedAttr: go_1_21
+  shellHook:
+  - echo Python $(python --version) ready!
+  - echo Go $(go version) ready!
+  env: null
+  test: []
+  task: null
+  shellAlias: []

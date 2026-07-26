@@ -18,9 +18,10 @@ The core design decision in LazyNix is that users never write Nix. Instead, they
 devShell:
   package:
     stable:
-      - python312
-      - uv
+      - name: python312
+      - name: uv
     unstable: []
+    pinned: []
 ```
 
 LazyNix translates this into a valid `flake.nix` behind the scenes. The user does not need to understand Nix expressions, attribute sets, or the nixpkgs module system. They only need to know the names of the packages they want, which they can look up at [search.nixos.org](https://search.nixos.org/packages).

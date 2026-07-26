@@ -1,0 +1,56 @@
+name: Verify Doc YAML
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - README.md
+      - document/**
+      - examples/**/README.md
+      - scripts/verify-doc-yaml.sh
+      - Cargo.toml
+      - Cargo.lock
+      - crates/lnix-domain/**
+      - crates/lnix-infra/**
+      - .github/workflows/verify_doc_yaml.yml
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - document/**
+      - examples/**/README.md
+      - scripts/verify-doc-yaml.sh
+      - Cargo.toml
+      - Cargo.lock
+      - crates/lnix-domain/**
+      - crates/lnix-infra/**
+      - .github/workflows/verify_doc_yaml.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-doc-yaml:
+    name: verify-doc-yaml
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+
+      - name: Verify documentation YAML blocks
+        run: bash scripts/verify-doc-yaml.sh
