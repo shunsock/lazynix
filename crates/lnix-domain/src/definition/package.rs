@@ -30,18 +30,15 @@ pub struct PinnedPackageEntry {
     pub name: PackageName,
     pub version: PackageVersion,
 
-    /// nixpkgs commit hash. Auto-resolved via nix-versions.
-    #[serde(default, skip_serializing_if = "always_skip_serialization")]
+    /// nixpkgs commit hash. Deserialized for backwards compatibility
+    /// only; never serialized because `flake.nix` owns the SSoT.
+    #[serde(default, skip_serializing)]
     pub resolved_commit: Option<String>,
 
-    /// Nix attribute path (e.g., "go_1_21"). Auto-resolved via nix-versions.
-    #[serde(default, skip_serializing_if = "always_skip_serialization")]
+    /// Nix attribute path (e.g., `go_1_21`). Deserialized for
+    /// backwards compatibility only; never serialized.
+    #[serde(default, skip_serializing)]
     pub resolved_attr: Option<String>,
-}
-
-// NOTE: resolved fields never serialize; flake.nix owns the SSoT.
-fn always_skip_serialization<T>(_: &T) -> bool {
-    true
 }
 
 #[cfg(test)]

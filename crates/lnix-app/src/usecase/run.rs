@@ -39,17 +39,14 @@ mod tests {
 
     #[test]
     fn regenerates_flake_and_runs_command() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         let code = run(&m.deps(), false, true, vec!["echo".into(), "hi".into()]).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        assert!(m.writer.written().is_some());
+        assert!(m.flake_writer.written().is_some());
         assert_eq!(
             m.nix.develop_command_args().unwrap(),
             vec!["echo".to_string(), "hi".to_string()]
@@ -58,15 +55,12 @@ mod tests {
 
     #[test]
     fn no_regen_skips_config_loading_entirely() {
-        // Arrange: no config on disk — --no-regen must not need one
         let m = Mocks::with_missing_config();
 
-        // Act
         let code = run(&m.deps(), false, false, vec!["true".into()]).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert!(
             m.out
                 .infos()
@@ -76,13 +70,10 @@ mod tests {
 
     #[test]
     fn rejects_empty_command() {
-        // Arrange
         let m = Mocks::with_missing_config();
 
-        // Act
         let result = run(&m.deps(), false, true, vec![]);
 
-        // Assert
         assert!(matches!(result, Err(ApplicationError::EmptyRunCommand)));
     }
 }

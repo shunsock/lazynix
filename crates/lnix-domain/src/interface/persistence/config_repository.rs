@@ -1,20 +1,17 @@
-//! Port for reading and writing the project's configuration files.
+//! Port for reading the project's configuration files.
 
 use crate::definition::{DevShellDefinition, Settings};
 use crate::error::ConfigError;
 
-/// Reads and writes `lazynix.yaml` and reads `lazynix-settings.yaml`.
+/// Reads `lazynix.yaml` and `lazynix-settings.yaml`.
 ///
 /// Implementations own the location of these files (the config
-/// directory); callers never handle paths.
+/// directory); callers never handle paths. The port is read-only: the
+/// generated `flake.nix` is the source of truth for resolved pinned
+/// versions, so `lazynix.yaml` is never rewritten.
 pub trait ConfigRepository {
     /// Reads and deserializes `lazynix.yaml`.
     fn read_config(&self) -> Result<DevShellDefinition, ConfigError>;
-
-    /// Serializes `config` back to `lazynix.yaml`.
-    ///
-    /// Used to persist resolved pinned-package versions.
-    fn write_config(&self, config: &DevShellDefinition) -> Result<(), ConfigError>;
 
     /// Reads `lazynix-settings.yaml`, or `None` when the file is absent.
     fn read_settings(&self) -> Result<Option<Settings>, ConfigError>;

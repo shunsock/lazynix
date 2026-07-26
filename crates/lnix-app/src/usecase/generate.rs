@@ -23,7 +23,7 @@ mod tests {
     use super::*;
     use crate::mocks::*;
     use lnix_domain::ConfigError;
-    use lnix_domain::interface::persistence::PinnedResolutions;
+    use lnix_domain::interface::persistence::{PinnedResolution, PinnedResolutions};
     use std::collections::HashMap;
 
     #[test]
@@ -35,7 +35,10 @@ mod tests {
         let code = generate(&m.deps()).unwrap();
 
         assert_eq!(code, 0);
-        let written = m.writer.written().expect("flake.nix should be written");
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
         assert!(written.contains("bash"));
     }
 
@@ -82,7 +85,7 @@ mod tests {
             result,
             Err(ApplicationError::Config(ConfigError::NotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 
     #[test]
@@ -93,10 +96,12 @@ mod tests {
 
         generate(&m.deps()).unwrap();
 
-        let written = m.writer.written().expect("flake.nix should be written");
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
         assert!(written.contains("e607cb5"));
         assert!(written.contains("go_1_21"));
-        assert!(m.repo.persisted_config().is_none());
     }
 
     #[test]
@@ -108,8 +113,7 @@ mod tests {
 
         generate(&m.deps()).unwrap();
 
-        assert!(m.repo.persisted_config().is_none());
-        assert!(m.writer.written().is_some());
+        assert!(m.flake_writer.written().is_some());
     }
 
     #[test]
@@ -117,7 +121,10 @@ mod tests {
         let mut cached: PinnedResolutions = HashMap::new();
         cached.insert(
             ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
-            ("CACHED_COMMIT".to_string(), "CACHED_ATTR".to_string()),
+            PinnedResolution {
+                commit: "CACHED_COMMIT".to_string(),
+                attr: "CACHED_ATTR".to_string(),
+            },
         );
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
@@ -127,7 +134,10 @@ mod tests {
         generate(&m.deps()).unwrap();
 
         assert!(m.resolver.resolve_calls().is_empty());
-        let written = m.writer.written().expect("flake.nix should be written");
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
         assert!(written.contains("CACHED_COMMIT"));
         assert!(written.contains("CACHED_ATTR"));
     }
@@ -145,6 +155,6 @@ mod tests {
             result,
             Err(ApplicationError::Config(ConfigError::DotenvFileNotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 }

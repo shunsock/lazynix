@@ -4,17 +4,15 @@
 //! a test is: build `Mocks`, run the use-case, assert on recordings.
 //! No filesystem, no subprocess, no terminal.
 
-use std::cell::RefCell;
-
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use lnix_domain::interface::gateway::{
     EvalOutcome, NixEvaluator, NixRunner, ResolvedVersion, VersionResolver,
 };
 use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
-    ConfigRepository, EnvFilePresenceChecker, FlakeReader, FlakeWriter, PinnedResolutions,
-    ProjectScaffolder,
+    ConfigRepository, EnvFilePresenceChecker, FlakeReader, FlakeWriter, PinnedResolution,
+    PinnedResolutions, ProjectScaffolder,
 };
 use lnix_domain::{
     ConfigError, DevShellDefinition, FlakeError, NixError, PackageName, PackageVersion, Settings,
@@ -28,7 +26,6 @@ pub(crate) fn config_from_yaml(yaml: &str) -> DevShellDefinition {
 
 pub(crate) struct MockRepo {
     config: Option<DevShellDefinition>,
-    persisted: RefCell<Option<DevShellDefinition>>,
 }
 
 impl ConfigRepository for MockRepo {
@@ -38,19 +35,8 @@ impl ConfigRepository for MockRepo {
             .ok_or_else(|| ConfigError::NotFound(".".to_string()))
     }
 
-    fn write_config(&self, config: &DevShellDefinition) -> Result<(), ConfigError> {
-        *self.persisted.borrow_mut() = Some(config.clone());
-        Ok(())
-    }
-
     fn read_settings(&self) -> Result<Option<Settings>, ConfigError> {
         Ok(None)
-    }
-}
-
-impl MockRepo {
-    pub(crate) fn persisted_config(&self) -> Option<DevShellDefinition> {
-        self.persisted.borrow().clone()
     }
 }
 
@@ -259,6 +245,7 @@ impl StubResolver {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct MockFlakeReader {
     inputs: PinnedResolutions,
     read_calls: RefCell<u32>,
@@ -281,21 +268,12 @@ impl MockFlakeReader {
     pub(crate) fn new(inputs: PinnedResolutions) -> Self {
         Self {
             inputs,
-            read_calls: RefCell::new(0),
-            should_fail: false,
+            ..Self::default()
         }
     }
 
     pub(crate) fn empty() -> Self {
-        Self::new(HashMap::new())
-    }
-
-    pub(crate) fn failing() -> Self {
-        Self {
-            inputs: HashMap::new(),
-            read_calls: RefCell::new(0),
-            should_fail: true,
-        }
+        Self::default()
     }
 
     pub(crate) fn read_calls(&self) -> u32 {
@@ -332,7 +310,7 @@ impl RecordingOutput {
 /// One mock per port, lent out as a [`Deps`].
 pub(crate) struct Mocks {
     pub(crate) repo: MockRepo,
-    pub(crate) writer: SpyWriter,
+    pub(crate) flake_writer: SpyWriter,
     pub(crate) flake_reader: MockFlakeReader,
     pub(crate) env: StubEnvChecker,
     pub(crate) scaffolder: MockScaffolder,
@@ -385,13 +363,18 @@ impl Mocks {
         self
     }
 
+    pub(crate) fn with_failing_flake_reader(mut self) -> Self {
+        self.flake_reader = MockFlakeReader {
+            should_fail: true,
+            ..MockFlakeReader::default()
+        };
+        self
+    }
+
     fn build(config: Option<DevShellDefinition>) -> Self {
         Self {
-            repo: MockRepo {
-                config,
-                persisted: RefCell::new(None),
-            },
-            writer: SpyWriter::default(),
+            repo: MockRepo { config },
+            flake_writer: SpyWriter::default(),
             flake_reader: MockFlakeReader::empty(),
             env: StubEnvChecker { all_present: true },
             scaffolder: MockScaffolder::default(),
@@ -405,7 +388,7 @@ impl Mocks {
     pub(crate) fn deps(&self) -> Deps<'_> {
         Deps {
             repo: &self.repo,
-            writer: &self.writer,
+            flake_writer: &self.flake_writer,
             flake_reader: &self.flake_reader,
             env: &self.env,
             scaffolder: &self.scaffolder,
@@ -426,7 +409,10 @@ mod tests {
         let mut inputs: PinnedResolutions = HashMap::new();
         inputs.insert(
             ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
-            ("5ed6275".into(), "go_1_21".into()),
+            PinnedResolution {
+                commit: "5ed6275".into(),
+                attr: "go_1_21".into(),
+            },
         );
         let reader = MockFlakeReader::new(inputs.clone());
 

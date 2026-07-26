@@ -93,6 +93,9 @@ pub enum FlakeError {
     #[error("Failed to write flake.nix: {0}")]
     Write(#[from] std::io::Error),
 
+    /// I/O error while reading `flake.nix`. `#[from]` is attached to
+    /// `Write` because thiserror derives at most one `From<io::Error>`
+    /// per enum, so `Read` variants must be constructed explicitly.
     #[error("Failed to read flake.nix: {0}")]
     Read(std::io::Error),
 }

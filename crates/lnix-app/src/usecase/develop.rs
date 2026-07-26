@@ -32,7 +32,7 @@ mod tests {
         let code = develop(&m.deps(), false).unwrap();
 
         assert_eq!(code, 0);
-        assert!(m.writer.written().unwrap().contains("bash"));
+        assert!(m.flake_writer.written().unwrap().contains("bash"));
         assert_eq!(m.nix.develop_calls(), 1);
         assert!(
             m.out
@@ -73,7 +73,7 @@ mod tests {
             result,
             Err(ApplicationError::Config(ConfigError::NotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert_eq!(m.nix.develop_calls(), 0);
     }
 
@@ -90,7 +90,7 @@ mod tests {
             result,
             Err(ApplicationError::Config(ConfigError::DotenvFileNotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 
     #[test]
@@ -101,10 +101,12 @@ mod tests {
 
         develop(&m.deps(), false).unwrap();
 
-        let written = m.writer.written().expect("flake.nix should be written");
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
         assert!(written.contains("e607cb5"));
         assert!(written.contains("go_1_21"));
-        assert!(m.repo.persisted_config().is_none());
     }
 
     #[test]
