@@ -194,9 +194,9 @@ described below.
 - `run`, `task`, and `test` propagate the exit code of the underlying
   child process.
 - `lint` validates `stable`, `unstable`, and `pinned` packages. For
-  `pinned` entries whose `resolvedCommit` / `resolvedAttr` are not
-  yet cached in `lazynix.yaml`, `lint` also asks `nix-versions`
-  whether the requested version can still be resolved.
+  each `pinned` entry, `lint` also asks `nix-versions` whether the
+  requested version can still be resolved, catching typos in the
+  version constraint before the next `lnix develop`.
 
 ## Configuration
 
@@ -276,23 +276,12 @@ Workflow:
            version: "1.21.13"
    ```
 
-3. Run `lnix develop` (or `run`/`test`). LazyNix resolves the pinned
-   entry via `nix-versions`, populates `resolvedCommit` and
-   `resolvedAttr` in the same list entry, and the resolved values are
-   **written back to `lazynix.yaml`** automatically:
-
-   ```yaml
-   devShell:
-     package:
-       pinned:
-         - name: go
-           version: "1.21.13"
-           resolvedCommit: "5ed6275"
-           resolvedAttr: "go_1_21"
-   ```
-
-   Subsequent commands reuse the already-resolved entry and skip the
-   network round-trip.
+3. Run `lnix develop` (or `run`/`test`). LazyNix asks `nix-versions`
+   for the exact `nixpkgs` commit that ships the requested version,
+   then embeds that commit into the generated `flake.nix` as its
+   input URL. Subsequent runs reuse the commit encoded in `flake.nix`
+   and skip the resolver call — the `flake.nix` **is** the cache.
+   `lazynix.yaml` is never touched.
 
 ### 🔤 Shell Aliases
 

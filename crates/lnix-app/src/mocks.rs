@@ -6,12 +6,15 @@
 
 use std::cell::RefCell;
 
+use std::collections::HashMap;
+
 use lnix_domain::interface::gateway::{
     EvalOutcome, NixEvaluator, NixRunner, ResolvedVersion, VersionResolver,
 };
 use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
-    ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
+    ConfigRepository, EnvFilePresenceChecker, FlakeReader, FlakeWriter, PinnedResolutions,
+    ProjectScaffolder,
 };
 use lnix_domain::{
     ConfigError, DevShellDefinition, FlakeError, NixError, PackageName, PackageVersion, Settings,
@@ -256,6 +259,50 @@ impl StubResolver {
     }
 }
 
+pub(crate) struct MockFlakeReader {
+    inputs: PinnedResolutions,
+    read_calls: RefCell<u32>,
+    should_fail: bool,
+}
+
+impl FlakeReader for MockFlakeReader {
+    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError> {
+        *self.read_calls.borrow_mut() += 1;
+        if self.should_fail {
+            return Err(FlakeError::Read(std::io::Error::other(
+                "mock flake reader failure",
+            )));
+        }
+        Ok(self.inputs.clone())
+    }
+}
+
+impl MockFlakeReader {
+    pub(crate) fn new(inputs: PinnedResolutions) -> Self {
+        Self {
+            inputs,
+            read_calls: RefCell::new(0),
+            should_fail: false,
+        }
+    }
+
+    pub(crate) fn empty() -> Self {
+        Self::new(HashMap::new())
+    }
+
+    pub(crate) fn failing() -> Self {
+        Self {
+            inputs: HashMap::new(),
+            read_calls: RefCell::new(0),
+            should_fail: true,
+        }
+    }
+
+    pub(crate) fn read_calls(&self) -> u32 {
+        *self.read_calls.borrow()
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct RecordingOutput {
     infos: RefCell<Vec<String>>,
@@ -286,6 +333,7 @@ impl RecordingOutput {
 pub(crate) struct Mocks {
     pub(crate) repo: MockRepo,
     pub(crate) writer: SpyWriter,
+    pub(crate) flake_reader: MockFlakeReader,
     pub(crate) env: StubEnvChecker,
     pub(crate) scaffolder: MockScaffolder,
     pub(crate) nix: FakeNix,
@@ -332,6 +380,11 @@ impl Mocks {
         self
     }
 
+    pub(crate) fn with_flake_reader(mut self, reader: MockFlakeReader) -> Self {
+        self.flake_reader = reader;
+        self
+    }
+
     fn build(config: Option<DevShellDefinition>) -> Self {
         Self {
             repo: MockRepo {
@@ -339,6 +392,7 @@ impl Mocks {
                 persisted: RefCell::new(None),
             },
             writer: SpyWriter::default(),
+            flake_reader: MockFlakeReader::empty(),
             env: StubEnvChecker { all_present: true },
             scaffolder: MockScaffolder::default(),
             nix: FakeNix::default(),
@@ -352,6 +406,7 @@ impl Mocks {
         Deps {
             repo: &self.repo,
             writer: &self.writer,
+            flake_reader: &self.flake_reader,
             env: &self.env,
             scaffolder: &self.scaffolder,
             nix: &self.nix,
@@ -359,5 +414,41 @@ impl Mocks {
             resolver: &self.resolver,
             out: &self.out,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mock_flake_reader_returns_configured_inputs() {
+        let mut inputs: PinnedResolutions = HashMap::new();
+        inputs.insert(
+            ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
+            ("5ed6275".into(), "go_1_21".into()),
+        );
+        let reader = MockFlakeReader::new(inputs.clone());
+
+        assert_eq!(reader.read_pinned_inputs().unwrap(), inputs);
+    }
+
+    #[test]
+    fn mock_flake_reader_records_read_calls() {
+        let reader = MockFlakeReader::empty();
+
+        let _ = reader.read_pinned_inputs();
+        let _ = reader.read_pinned_inputs();
+
+        assert_eq!(reader.read_calls(), 2);
+    }
+
+    #[test]
+    fn mocks_with_config_defaults_flake_reader_to_empty() {
+        let m = Mocks::with_config(config_from_yaml(
+            "devShell:\n  package:\n    stable:\n      - name: bash\n",
+        ));
+
+        assert!(m.flake_reader.read_pinned_inputs().unwrap().is_empty());
     }
 }

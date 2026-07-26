@@ -40,14 +40,15 @@ nix run github:shunsock/lazynix -- search go -v '>=1.21,<1.22'
 nix run github:shunsock/lazynix -- develop
 ```
 
-## Note: Write-back Behavior
+## Note: Resolution Caching
 
-When you invoke `lnix develop` for the first time, `lazynix` uses
+When you invoke `lnix develop` and no `flake.nix` exists, `lazynix` uses
 [`nix-versions`](https://lazamar.github.io/download-specific-package-version-with-nix/)
 to look up the exact nixpkgs commit that provides the requested version, then
-writes the resolved metadata back into `lazynix.yaml` as `resolvedCommit` and
-`resolvedAttr`. Subsequent runs reuse those values, so the pin is reproducible
-even if the upstream index changes.
+embeds that commit into the generated `flake.nix` as its input URL. Subsequent
+runs reuse the commit baked into `flake.nix` and skip the resolver call, so
+the pin remains reproducible even if the upstream index changes.
+`lazynix.yaml` is never mutated.
 
 ## References
 

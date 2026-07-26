@@ -85,12 +85,16 @@ pub enum ConfigError {
     DotenvFileNotFound(String),
 }
 
-/// Failures persisting rendered `flake.nix` content, raised through
-/// [`crate::interface::persistence::FlakeWriter`].
+/// Failures persisting or reading `flake.nix` content, raised through
+/// [`crate::interface::persistence::FlakeWriter`] and
+/// [`crate::interface::persistence::FlakeReader`].
 #[derive(Error, Debug)]
 pub enum FlakeError {
     #[error("Failed to write flake.nix: {0}")]
     Write(#[from] std::io::Error),
+
+    #[error("Failed to read flake.nix: {0}")]
+    Read(std::io::Error),
 }
 
 /// Failures executing `nix`, raised through the gateways in
