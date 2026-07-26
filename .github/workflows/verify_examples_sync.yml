@@ -1,0 +1,107 @@
+name: Verify Examples Sync
+
+# examples/*/flake.nix は lazynix.yaml から lnix が生成する成果物で、両方コミットしている。
+# ジェネレータ (crates/lnix-domain/src/service/flake/) を変更した際に examples 側の
+# flake.nix を再生成し忘れると、実際のユーザ体験と乖離する。この workflow は PR で
+# 再生成を実行し、コミット済みの成果物との差分がないことを検証する。
+#
+# workflow-level paths filter は使わない。pass_cargo_commands.yml と同じ理由で、
+# required status check として設定した場合に無関係な PR で workflow が発火せず
+# 「待ち」で詰まるのを避けるため。paths-filter は detect-changes ジョブが実行し、
+# 変更が無ければ verify ジョブは skip される (skip は required check で passing 扱い)。
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    name: Detect changed paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      should_run: ${{ steps.filter.outputs.should_run }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706  # v4.0.2
+        id: filter
+        with:
+          filters: |
+            should_run:
+              - crates/lnix-domain/src/service/flake/**
+              - crates/lnix-domain/src/**
+              - crates/lnix-app/src/**
+              - crates/lnix/src/**
+              - crates/*/Cargo.toml
+              - Cargo.toml
+              - Cargo.lock
+              - examples/**
+              - .github/workflows/verify_examples_sync.yml
+
+  verify:
+    name: Regenerate examples and diff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_run == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Nix
+        uses: ./.github/actions/setup-nix
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+
+      # lnix run 経由の nix develop が並行 nix eval を起こす前に tarball cache の
+      # ロック競合を回避するため、事前に serial で nix eval を叩いておく。
+      - name: Warm up nix flake registry cache
+        run: nix eval nixpkgs#hello
+
+      - name: Build lnix
+        run: cargo build --release -p lnix
+
+      # 現状 lnix には generate-only なサブコマンドが存在しないため、副作用として
+      # flake.nix を再生成する `lnix run -- true` を回避策として使う (true は
+      # nix develop 内で必ず成功する no-op)。専用サブコマンド追加時はここを差し替える。
+      - name: Regenerate examples flake.nix
+        run: |
+          set -euo pipefail
+          processed=0
+          for dir in examples/*/; do
+            if [ ! -f "${dir}lazynix.yaml" ]; then
+              continue
+            fi
+            echo "Regenerating ${dir}"
+            ./target/release/lnix -C "${dir}" run -- true
+            processed=$((processed + 1))
+          done
+          if [ "${processed}" -eq 0 ]; then
+            echo "No examples with lazynix.yaml were processed" >&2
+            exit 1
+          fi
+
+      # flake.nix だけでなく lazynix.yaml も対象に含める。将来の pinned example では
+      # resolve 結果が YAML に書き戻される可能性があるため、examples/ 全体で差分を検出する。
+      - name: Verify examples are in sync
+        run: git diff --exit-code -- 'examples/'
