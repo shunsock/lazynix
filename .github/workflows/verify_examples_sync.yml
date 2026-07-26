@@ -81,27 +81,10 @@ jobs:
       - name: Build lnix
         run: cargo build --release -p lnix
 
-      # 現状 lnix には generate-only なサブコマンドが存在しないため、副作用として
-      # flake.nix を再生成する `lnix run -- true` を回避策として使う (true は
-      # nix develop 内で必ず成功する no-op)。専用サブコマンド追加時はここを差し替える。
-      - name: Regenerate examples flake.nix
-        run: |
-          set -euo pipefail
-          processed=0
-          for dir in examples/*/; do
-            if [ ! -f "${dir}lazynix.yaml" ]; then
-              continue
-            fi
-            echo "Regenerating ${dir}"
-            ./target/release/lnix -C "${dir}" run -- true
-            processed=$((processed + 1))
-          done
-          if [ "${processed}" -eq 0 ]; then
-            echo "No examples with lazynix.yaml were processed" >&2
-            exit 1
-          fi
-
-      # flake.nix だけでなく lazynix.yaml も対象に含める。将来の pinned example では
-      # resolve 結果が YAML に書き戻される可能性があるため、examples/ 全体で差分を検出する。
+      # 再生成と差分検証の本体は .github/scripts/verify_examples_sync.sh に切り出している。
+      # ローカルで shellcheck や実行検証を回せるよう、ワークフロー内 shell では持たない。
+      # 現状 lnix には generate-only なサブコマンドが無いため、スクリプト内では副作用として
+      # flake.nix を再生成する `lnix run -- true` (true は nix develop 内で成功する no-op)
+      # を回避策に使う。専用サブコマンドが追加されたらスクリプト側を差し替える。
       - name: Verify examples are in sync
-        run: git diff --exit-code -- 'examples/'
+        run: bash .github/scripts/verify_examples_sync.sh
