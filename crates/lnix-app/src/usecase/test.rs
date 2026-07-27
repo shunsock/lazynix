@@ -28,33 +28,27 @@ mod tests {
 
     #[test]
     fn runs_declared_tests_after_writing_flake() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n  test:\n    - cargo test\n",
         ));
 
-        // Act
         let code = test(&m.deps(), false).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        assert!(m.writer.written().is_some());
+        assert!(m.flake_writer.written().is_some());
         assert_eq!(m.nix.test_calls(), 1);
     }
 
     #[test]
     fn fails_fast_when_no_tests_declared() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         let result = test(&m.deps(), false);
 
-        // Assert
         assert!(matches!(result, Err(ApplicationError::NoTestCommands)));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert_eq!(m.nix.test_calls(), 0);
     }
 }

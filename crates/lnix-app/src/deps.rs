@@ -9,7 +9,7 @@
 use lnix_domain::interface::gateway::{NixEvaluator, NixRunner, VersionResolver};
 use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
-    ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
+    ConfigRepository, EnvFilePresenceChecker, FlakeReader, FlakeWriter, ProjectScaffolder,
 };
 
 /// Borrowed bundle of every port a use-case may touch.
@@ -17,10 +17,12 @@ use lnix_domain::interface::persistence::{
 /// The composition root (the binary) owns the adapter values; `Deps`
 /// only borrows them for the duration of one command.
 pub struct Deps<'a> {
-    /// Reads/writes `lazynix.yaml` and reads `lazynix-settings.yaml`.
+    /// Reads `lazynix.yaml` and `lazynix-settings.yaml`.
     pub repo: &'a dyn ConfigRepository,
     /// Persists rendered `flake.nix` content.
-    pub writer: &'a dyn FlakeWriter,
+    pub flake_writer: &'a dyn FlakeWriter,
+    /// Recovers pinned `(commit, attr)` from the existing `flake.nix`.
+    pub flake_reader: &'a dyn FlakeReader,
     /// Checks dotenv files referenced by the config exist.
     pub env: &'a dyn EnvFilePresenceChecker,
     /// Writes the bundled starter files for `lnix init`.
@@ -39,20 +41,16 @@ pub struct Deps<'a> {
 mod tests {
     use crate::mocks::*;
 
-    // Building Deps from the shared mocks is itself the assertion that
-    // every port trait stays object-safe (a generic method would break
-    // `dyn`).
     #[test]
     fn bundles_all_ports_and_dispatches_through_dyn() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
         let deps = m.deps();
 
-        // Act
         let config = deps.repo.read_config().unwrap();
-        let write_result = deps.writer.write_flake("{}");
+        let write_result = deps.flake_writer.write_flake("{}");
+        let pinned = deps.flake_reader.read_pinned_inputs().unwrap();
         let env_exists = deps.env.exists(".env");
         let exit_code = deps.nix.develop_command(&["true".to_string()]).unwrap();
         let outcome = deps
@@ -65,9 +63,9 @@ mod tests {
             .unwrap();
         deps.out.info("progress");
 
-        // Assert
         assert_eq!(config.dev_shell.package.stable[0].name.as_str(), "bash");
         assert!(write_result.is_ok());
+        assert!(pinned.is_empty());
         assert!(env_exists);
         assert_eq!(exit_code, 0);
         assert!(outcome.success);

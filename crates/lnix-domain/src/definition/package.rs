@@ -30,12 +30,14 @@ pub struct PinnedPackageEntry {
     pub name: PackageName,
     pub version: PackageVersion,
 
-    /// nixpkgs commit hash. Auto-resolved via nix-versions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// nixpkgs commit hash. Deserialized for backwards compatibility
+    /// only; never serialized because `flake.nix` owns the SSoT.
+    #[serde(default, skip_serializing)]
     pub resolved_commit: Option<String>,
 
-    /// Nix attribute path (e.g., "go_1_21"). Auto-resolved via nix-versions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Nix attribute path (e.g., `go_1_21`). Deserialized for
+    /// backwards compatibility only; never serialized.
+    #[serde(default, skip_serializing)]
     pub resolved_attr: Option<String>,
 }
 
@@ -45,7 +47,6 @@ mod tests {
 
     #[test]
     fn deserializes_pinned_entry_with_resolution() {
-        // Arrange
         let yaml = r#"
 name: go
 version: "1.21.13"
@@ -53,10 +54,8 @@ resolvedCommit: "5ed6275"
 resolvedAttr: "go_1_21"
 "#;
 
-        // Act
         let pinned: PinnedPackageEntry = serde_yaml::from_str(yaml).unwrap();
 
-        // Assert
         assert_eq!(pinned.name.as_str(), "go");
         assert_eq!(pinned.version.as_str(), "1.21.13");
         assert_eq!(pinned.resolved_commit.as_deref(), Some("5ed6275"));
@@ -65,52 +64,129 @@ resolvedAttr: "go_1_21"
 
     #[test]
     fn deserializes_unresolved_pinned_entry() {
-        // Arrange
         let yaml = r#"
 name: go
 version: "1.21.13"
 "#;
 
-        // Act
         let pinned: PinnedPackageEntry = serde_yaml::from_str(yaml).unwrap();
 
-        // Assert
         assert!(pinned.resolved_commit.is_none());
         assert!(pinned.resolved_attr.is_none());
     }
 
     #[test]
     fn rejects_invalid_package_name_at_parse_time() {
-        // Arrange
         let yaml = r#"
 name: "invalid package!"
 version: "1.0"
 "#;
 
-        // Act
         let result = serde_yaml::from_str::<PinnedPackageEntry>(yaml);
 
-        // Assert
         let message = result.unwrap_err().to_string();
         assert!(message.contains("Invalid package name"), "got: {message}");
     }
 
     #[test]
     fn rejects_empty_pinned_version_at_parse_time() {
-        // Arrange
         let yaml = r#"
 name: go
 version: ""
 "#;
 
-        // Act
         let result = serde_yaml::from_str::<PinnedPackageEntry>(yaml);
 
-        // Assert
         let message = result.unwrap_err().to_string();
         assert!(
             message.contains("version cannot be empty"),
             "got: {message}"
         );
+    }
+
+    #[test]
+    fn serialize_omits_resolved_commit() {
+        let pinned = PinnedPackageEntry {
+            name: "go".parse().unwrap(),
+            version: "1.21.13".parse().unwrap(),
+            resolved_commit: Some("5ed6275".to_string()),
+            resolved_attr: None,
+        };
+
+        let yaml = serde_yaml::to_string(&pinned).unwrap();
+
+        assert!(
+            !yaml.contains("resolvedCommit"),
+            "resolvedCommit must not be serialized; got: {yaml}"
+        );
+    }
+
+    #[test]
+    fn serialize_omits_resolved_attr() {
+        let pinned = PinnedPackageEntry {
+            name: "go".parse().unwrap(),
+            version: "1.21.13".parse().unwrap(),
+            resolved_commit: None,
+            resolved_attr: Some("go_1_21".to_string()),
+        };
+
+        let yaml = serde_yaml::to_string(&pinned).unwrap();
+
+        assert!(
+            !yaml.contains("resolvedAttr"),
+            "resolvedAttr must not be serialized; got: {yaml}"
+        );
+    }
+
+    #[test]
+    fn serialize_emits_name_and_version() {
+        let pinned = PinnedPackageEntry {
+            name: "go".parse().unwrap(),
+            version: "1.21.13".parse().unwrap(),
+            resolved_commit: Some("5ed6275".to_string()),
+            resolved_attr: Some("go_1_21".to_string()),
+        };
+
+        let yaml = serde_yaml::to_string(&pinned).unwrap();
+
+        assert!(yaml.contains("name: go"), "missing name; got: {yaml}");
+        assert!(
+            yaml.contains("version: 1.21.13"),
+            "missing version; got: {yaml}"
+        );
+    }
+
+    #[test]
+    fn round_trip_drops_resolved_fields() {
+        let legacy_yaml = r#"
+name: go
+version: "1.21.13"
+resolvedCommit: "5ed6275"
+resolvedAttr: "go_1_21"
+"#;
+
+        let first: PinnedPackageEntry = serde_yaml::from_str(legacy_yaml).unwrap();
+        let re_serialized = serde_yaml::to_string(&first).unwrap();
+        let second: PinnedPackageEntry = serde_yaml::from_str(&re_serialized).unwrap();
+
+        assert!(second.resolved_commit.is_none());
+        assert!(second.resolved_attr.is_none());
+    }
+
+    #[test]
+    fn deserialize_still_accepts_legacy_resolved_fields() {
+        let legacy_yaml = r#"
+name: go
+version: "1.21.13"
+resolvedCommit: "5ed6275"
+resolvedAttr: "go_1_21"
+"#;
+
+        let pinned: PinnedPackageEntry = serde_yaml::from_str(legacy_yaml).unwrap();
+
+        assert_eq!(pinned.name.as_str(), "go");
+        assert_eq!(pinned.version.as_str(), "1.21.13");
+        assert_eq!(pinned.resolved_commit.as_deref(), Some("5ed6275"));
+        assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
     }
 }

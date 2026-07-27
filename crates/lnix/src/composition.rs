@@ -11,13 +11,14 @@ use lnix_infra::WorkspacePaths;
 use lnix_infra::gateway::{NixVersionsResolver, SubprocessNixEvaluator, SubprocessNixRunner};
 use lnix_infra::output::TerminalOutput;
 use lnix_infra::persistence::{
-    FsConfigRepository, FsEnvFileChecker, FsFlakeWriter, FsProjectScaffolder,
+    FsConfigRepository, FsEnvFileChecker, FsFlakeReader, FsFlakeWriter, FsProjectScaffolder,
 };
 
 /// Owns one adapter per port for the duration of a command.
 pub struct AdapterSet {
     repo: FsConfigRepository,
-    writer: FsFlakeWriter,
+    flake_writer: FsFlakeWriter,
+    flake_reader: FsFlakeReader,
     env: FsEnvFileChecker,
     scaffolder: FsProjectScaffolder,
     nix: SubprocessNixRunner,
@@ -31,7 +32,8 @@ impl AdapterSet {
         let paths = WorkspacePaths::new(config_dir);
         Self {
             repo: FsConfigRepository::new(paths.clone()),
-            writer: FsFlakeWriter::new(paths.clone()),
+            flake_writer: FsFlakeWriter::new(paths.clone()),
+            flake_reader: FsFlakeReader::new(paths.clone()),
             env: FsEnvFileChecker::new(paths.clone()),
             scaffolder: FsProjectScaffolder::new(paths),
             nix: SubprocessNixRunner,
@@ -44,7 +46,8 @@ impl AdapterSet {
     pub fn deps(&self) -> Deps<'_> {
         Deps {
             repo: &self.repo,
-            writer: &self.writer,
+            flake_writer: &self.flake_writer,
+            flake_reader: &self.flake_reader,
             env: &self.env,
             scaffolder: &self.scaffolder,
             nix: &self.nix,

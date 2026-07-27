@@ -23,115 +23,138 @@ mod tests {
     use super::*;
     use crate::mocks::*;
     use lnix_domain::ConfigError;
+    use lnix_domain::interface::persistence::{PinnedResolution, PinnedResolutions};
+    use std::collections::HashMap;
 
     #[test]
     fn writes_flake_with_configured_package_and_returns_zero() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         let code = generate(&m.deps()).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        let written = m.writer.written().expect("flake.nix should be written");
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
         assert!(written.contains("bash"));
     }
 
     #[test]
     fn does_not_enter_the_dev_shell() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         generate(&m.deps()).unwrap();
 
-        // Assert
         assert_eq!(m.nix.develop_calls(), 0);
     }
 
     #[test]
     fn does_not_execute_any_ad_hoc_command() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         generate(&m.deps()).unwrap();
 
-        // Assert
         assert!(m.nix.develop_command_args().is_none());
     }
 
     #[test]
     fn does_not_update_the_flake_lock() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         generate(&m.deps()).unwrap();
 
-        // Assert
         assert_eq!(m.nix.flake_update_calls(), 0);
     }
 
     #[test]
     fn missing_config_short_circuits_before_any_side_effect() {
-        // Arrange
         let m = Mocks::with_missing_config();
 
-        // Act
         let result = generate(&m.deps());
 
-        // Assert
         assert!(matches!(
             result,
             Err(ApplicationError::Config(ConfigError::NotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 
     #[test]
-    fn resolves_pinned_packages_and_persists_them() {
-        // Arrange
+    fn resolves_pinned_packages_and_renders_them_into_flake() {
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
-        // Act
         generate(&m.deps()).unwrap();
 
-        // Assert
-        let persisted = m.repo.persisted_config().unwrap();
-        let pinned = &persisted.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
-        assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
-        assert!(m.writer.written().unwrap().contains("go_1_21"));
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
+        assert!(written.contains("e607cb5"));
+        assert!(written.contains("go_1_21"));
+    }
+
+    #[test]
+    fn generate_does_not_write_back_lazynix_yaml_when_pinned_resolves() {
+        let m = Mocks::with_config(config_from_yaml(
+            "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
+        ))
+        .with_flake_reader(MockFlakeReader::empty());
+
+        generate(&m.deps()).unwrap();
+
+        assert!(m.flake_writer.written().is_some());
+    }
+
+    #[test]
+    fn generate_reuses_flake_reader_cache_and_skips_resolver() {
+        let mut cached: PinnedResolutions = HashMap::new();
+        cached.insert(
+            ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
+            PinnedResolution {
+                commit: "CACHED_COMMIT".to_string(),
+                attr: "CACHED_ATTR".to_string(),
+            },
+        );
+        let m = Mocks::with_config(config_from_yaml(
+            "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
+        ))
+        .with_flake_reader(MockFlakeReader::new(cached));
+
+        generate(&m.deps()).unwrap();
+
+        assert!(m.resolver.resolve_calls().is_empty());
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
+        assert!(written.contains("CACHED_COMMIT"));
+        assert!(written.contains("CACHED_ATTR"));
     }
 
     #[test]
     fn missing_dotenv_fails_before_writing_flake() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n  env:\n    dotenv:\n      - .env\n",
         ))
         .with_missing_env_files();
 
-        // Act
         let result = generate(&m.deps());
 
-        // Assert
         assert!(matches!(
             result,
             Err(ApplicationError::Config(ConfigError::DotenvFileNotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 }

@@ -48,7 +48,7 @@ crates/
 
 `flake.nix` を生成するユースケース (`develop` / `test` / `run`) は、`pipeline.rs` に定義された共通の前段を共有します:
 
-1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `OutputPort::warn` に流す)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決とその結果の `lazynix.yaml` への書き戻し。
+1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `OutputPort::warn` に流す)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決。解決結果は生成される `flake.nix` に埋め込まれ、`lazynix.yaml` は書き換えません。再実行時は `FlakeReader` ポート経由で `flake.nix` から `(commit, attr)` を復元し、キャッシュヒット時は resolver 呼び出しをスキップします。
 2. `write_flake` — `lnix_domain::render_flake` を呼び出し、結果を `./flake.nix` に書き込む。
 3. `maybe_update_lock` — `--update` が指定されているときのみ `NixRunner::flake_update` を呼び出す。
 
@@ -115,7 +115,7 @@ DevShellDefinition
 
 新しめのフィールドに関する補足:
 
-- `pinned` はパッケージを厳密なバージョンに固定します。`resolvedCommit` と `resolvedAttr` は、パイプラインが `VersionResolver` 経由で初めて解決した際に埋められ、以降の実行で再解決を避けるために `lazynix.yaml` に書き戻されます。
+- `pinned` はパッケージを厳密なバージョンに固定します。パイプラインは `VersionResolver` 経由で一度解決した `(commit, attr)` を生成後の `flake.nix` へ埋め込み、それが真実の情報源になります。`lazynix.yaml` は書き換えません。次回以降の実行は `FlakeReader` ポート経由で `flake.nix` から `(commit, attr)` を読み戻します。旧仕様の `resolvedCommit` / `resolvedAttr` フィールドは互換のため読み込みは受理しますが、シリアライズはされません。
 - `shellAlias` は、シェルエイリアスの定義を開発シェルへロードする対象ファイルの一覧です。
 - `env.envvar[].name` は `EnvVarName`、`task` のキーは `TaskName` の値オブジェクトで、不正な識別子は YAML パース時点で拒否されます。
 
@@ -152,8 +152,10 @@ DevShellDefinition
        ├── ConfigRepository::read_config           (lazynix.yaml → DevShellDefinition)
        ├── lnix_domain::validate_config            (診断 → OutputPort::warn)
        ├── validate_env_files                      (dotenv ファイルの存在確認)
-       └── resolve_pinned_packages                 (VersionResolver::resolve →
-                                                    lazynix.yaml への書き戻し)
+       └── resolve_pinned_packages                 (FlakeReader::read_pinned_inputs
+                                                    がヒットすれば再利用、そうでなければ
+                                                    VersionResolver::resolve。
+                                                    lazynix.yaml は書き換えない)
   │
   4. lnix_app::pipeline::write_flake
        └── lnix_domain::render_flake → FlakeWriter::write_flake

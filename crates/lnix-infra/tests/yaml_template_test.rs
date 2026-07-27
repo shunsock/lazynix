@@ -36,3 +36,23 @@ fn yaml_template_documents_pinned_usage() {
     assert_eq!(entries[0].name.as_str(), "go");
     assert_eq!(entries[0].version.as_str(), "1.21.13");
 }
+
+#[test]
+fn yaml_template_describes_flake_embedding_not_write_back() {
+    assert!(
+        YAML_TEMPLATE.contains("embedded in the generated flake.nix"),
+        "template should explain that the pinned commit is embedded in flake.nix"
+    );
+    assert!(
+        !YAML_TEMPLATE.contains("written back"),
+        "template must not promise write-back to lazynix.yaml"
+    );
+    assert!(
+        !YAML_TEMPLATE.contains("resolvedCommit"),
+        "template must not surface resolvedCommit as user-facing state"
+    );
+    assert!(
+        !YAML_TEMPLATE.contains("resolvedAttr"),
+        "template must not surface resolvedAttr as user-facing state"
+    );
+}

@@ -4,14 +4,15 @@
 //! a test is: build `Mocks`, run the use-case, assert on recordings.
 //! No filesystem, no subprocess, no terminal.
 
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::HashMap};
 
 use lnix_domain::interface::gateway::{
     EvalOutcome, NixEvaluator, NixRunner, ResolvedVersion, VersionResolver,
 };
 use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
-    ConfigRepository, EnvFilePresenceChecker, FlakeWriter, ProjectScaffolder,
+    ConfigRepository, EnvFilePresenceChecker, FlakeReader, FlakeWriter, PinnedResolution,
+    PinnedResolutions, ProjectScaffolder,
 };
 use lnix_domain::{
     ConfigError, DevShellDefinition, FlakeError, NixError, PackageName, PackageVersion, Settings,
@@ -25,7 +26,6 @@ pub(crate) fn config_from_yaml(yaml: &str) -> DevShellDefinition {
 
 pub(crate) struct MockRepo {
     config: Option<DevShellDefinition>,
-    persisted: RefCell<Option<DevShellDefinition>>,
 }
 
 impl ConfigRepository for MockRepo {
@@ -35,19 +35,8 @@ impl ConfigRepository for MockRepo {
             .ok_or_else(|| ConfigError::NotFound(".".to_string()))
     }
 
-    fn write_config(&self, config: &DevShellDefinition) -> Result<(), ConfigError> {
-        *self.persisted.borrow_mut() = Some(config.clone());
-        Ok(())
-    }
-
     fn read_settings(&self) -> Result<Option<Settings>, ConfigError> {
         Ok(None)
-    }
-}
-
-impl MockRepo {
-    pub(crate) fn persisted_config(&self) -> Option<DevShellDefinition> {
-        self.persisted.borrow().clone()
     }
 }
 
@@ -257,6 +246,42 @@ impl StubResolver {
 }
 
 #[derive(Default)]
+pub(crate) struct MockFlakeReader {
+    inputs: PinnedResolutions,
+    read_calls: RefCell<u32>,
+    should_fail: bool,
+}
+
+impl FlakeReader for MockFlakeReader {
+    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError> {
+        *self.read_calls.borrow_mut() += 1;
+        if self.should_fail {
+            return Err(FlakeError::Read(std::io::Error::other(
+                "mock flake reader failure",
+            )));
+        }
+        Ok(self.inputs.clone())
+    }
+}
+
+impl MockFlakeReader {
+    pub(crate) fn new(inputs: PinnedResolutions) -> Self {
+        Self {
+            inputs,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn empty() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn read_calls(&self) -> u32 {
+        *self.read_calls.borrow()
+    }
+}
+
+#[derive(Default)]
 pub(crate) struct RecordingOutput {
     infos: RefCell<Vec<String>>,
     warns: RefCell<Vec<String>>,
@@ -285,7 +310,8 @@ impl RecordingOutput {
 /// One mock per port, lent out as a [`Deps`].
 pub(crate) struct Mocks {
     pub(crate) repo: MockRepo,
-    pub(crate) writer: SpyWriter,
+    pub(crate) flake_writer: SpyWriter,
+    pub(crate) flake_reader: MockFlakeReader,
     pub(crate) env: StubEnvChecker,
     pub(crate) scaffolder: MockScaffolder,
     pub(crate) nix: FakeNix,
@@ -332,13 +358,24 @@ impl Mocks {
         self
     }
 
+    pub(crate) fn with_flake_reader(mut self, reader: MockFlakeReader) -> Self {
+        self.flake_reader = reader;
+        self
+    }
+
+    pub(crate) fn with_failing_flake_reader(mut self) -> Self {
+        self.flake_reader = MockFlakeReader {
+            should_fail: true,
+            ..MockFlakeReader::default()
+        };
+        self
+    }
+
     fn build(config: Option<DevShellDefinition>) -> Self {
         Self {
-            repo: MockRepo {
-                config,
-                persisted: RefCell::new(None),
-            },
-            writer: SpyWriter::default(),
+            repo: MockRepo { config },
+            flake_writer: SpyWriter::default(),
+            flake_reader: MockFlakeReader::empty(),
             env: StubEnvChecker { all_present: true },
             scaffolder: MockScaffolder::default(),
             nix: FakeNix::default(),
@@ -351,7 +388,8 @@ impl Mocks {
     pub(crate) fn deps(&self) -> Deps<'_> {
         Deps {
             repo: &self.repo,
-            writer: &self.writer,
+            flake_writer: &self.flake_writer,
+            flake_reader: &self.flake_reader,
             env: &self.env,
             scaffolder: &self.scaffolder,
             nix: &self.nix,
@@ -359,5 +397,44 @@ impl Mocks {
             resolver: &self.resolver,
             out: &self.out,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mock_flake_reader_returns_configured_inputs() {
+        let mut inputs: PinnedResolutions = HashMap::new();
+        inputs.insert(
+            ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
+            PinnedResolution {
+                commit: "5ed6275".into(),
+                attr: "go_1_21".into(),
+            },
+        );
+        let reader = MockFlakeReader::new(inputs.clone());
+
+        assert_eq!(reader.read_pinned_inputs().unwrap(), inputs);
+    }
+
+    #[test]
+    fn mock_flake_reader_records_read_calls() {
+        let reader = MockFlakeReader::empty();
+
+        let _ = reader.read_pinned_inputs();
+        let _ = reader.read_pinned_inputs();
+
+        assert_eq!(reader.read_calls(), 2);
+    }
+
+    #[test]
+    fn mocks_with_config_defaults_flake_reader_to_empty() {
+        let m = Mocks::with_config(config_from_yaml(
+            "devShell:\n  package:\n    stable:\n      - name: bash\n",
+        ));
+
+        assert!(m.flake_reader.read_pinned_inputs().unwrap().is_empty());
     }
 }

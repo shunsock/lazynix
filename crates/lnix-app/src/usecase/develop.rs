@@ -25,17 +25,14 @@ mod tests {
 
     #[test]
     fn writes_flake_and_enters_shell() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         let code = develop(&m.deps(), false).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
-        assert!(m.writer.written().unwrap().contains("bash"));
+        assert!(m.flake_writer.written().unwrap().contains("bash"));
         assert_eq!(m.nix.develop_calls(), 1);
         assert!(
             m.out
@@ -51,15 +48,12 @@ mod tests {
 
     #[test]
     fn updates_lock_when_requested() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        // Act
         let code = develop(&m.deps(), true).unwrap();
 
-        // Assert
         assert_eq!(code, 0);
         assert_eq!(m.nix.flake_update_calls(), 1);
         assert!(
@@ -71,67 +65,56 @@ mod tests {
 
     #[test]
     fn missing_config_short_circuits_before_any_side_effect() {
-        // Arrange
         let m = Mocks::with_missing_config();
 
-        // Act
         let result = develop(&m.deps(), false);
 
-        // Assert
         assert!(matches!(
             result,
             Err(ApplicationError::Config(ConfigError::NotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert_eq!(m.nix.develop_calls(), 0);
     }
 
     #[test]
     fn missing_dotenv_fails_before_writing_flake() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n  env:\n    dotenv:\n      - .env\n",
         ))
         .with_missing_env_files();
 
-        // Act
         let result = develop(&m.deps(), false);
 
-        // Assert
         assert!(matches!(
             result,
             Err(ApplicationError::Config(ConfigError::DotenvFileNotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 
     #[test]
-    fn resolves_pinned_packages_and_persists_them() {
-        // Arrange
+    fn resolves_pinned_packages_and_renders_them_into_flake() {
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
-        // Act
         develop(&m.deps(), false).unwrap();
 
-        // Assert
-        let persisted = m.repo.persisted_config().unwrap();
-        let pinned = &persisted.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
-        assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
-        assert!(m.writer.written().unwrap().contains("go_1_21"));
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
+        assert!(written.contains("e607cb5"));
+        assert!(written.contains("go_1_21"));
     }
 
     #[test]
     fn warns_about_empty_package_list_via_output_port() {
-        // Arrange
         let m = Mocks::with_config(config_from_yaml("devShell:\n  package:\n    stable: []\n"));
 
-        // Act
         develop(&m.deps(), false).unwrap();
 
-        // Assert
         assert!(
             m.out
                 .warns()

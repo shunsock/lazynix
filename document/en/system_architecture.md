@@ -115,7 +115,7 @@ DevShellDefinition
 
 Notes on the newer fields:
 
-- `pinned` binds a package to an exact version. `resolvedCommit` and `resolvedAttr` are filled in the first time the pipeline resolves the version through `VersionResolver`, and are then written back to `lazynix.yaml` so subsequent runs skip the lookup.
+- `pinned` binds a package to an exact version. The pipeline resolves the version through `VersionResolver` once and embeds the resulting `(commit, attr)` pair into the generated `flake.nix`; that flake is the source of truth for the resolution. `lazynix.yaml` is never mutated. Subsequent runs read the pair back from `flake.nix` via the `FlakeReader` port. Legacy `resolvedCommit` / `resolvedAttr` fields still deserialize for backwards compatibility but are never serialized.
 - `shellAlias` lists files whose shell alias definitions are loaded into the dev shell.
 - `env.envvar[].name` is an `EnvVarName` and `task` keys are `TaskName`, so invalid identifiers are rejected at YAML parse time.
 
@@ -152,8 +152,9 @@ User runs: lnix develop [--update]
        ├── ConfigRepository::read_config           (lazynix.yaml → DevShellDefinition)
        ├── lnix_domain::validate_config            (diagnostics → OutputPort::warn)
        ├── validate_env_files                      (dotenv files must exist)
-       └── resolve_pinned_packages                 (VersionResolver::resolve →
-                                                    write back to lazynix.yaml)
+       └── resolve_pinned_packages                 (FlakeReader::read_pinned_inputs
+                                                    hits, else VersionResolver::resolve;
+                                                    lazynix.yaml is never mutated)
   │
   4. lnix_app::pipeline::write_flake
        └── lnix_domain::render_flake → FlakeWriter::write_flake

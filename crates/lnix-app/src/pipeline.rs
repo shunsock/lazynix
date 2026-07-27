@@ -19,24 +19,24 @@ pub(crate) struct LoadedConfig {
 
 /// Reads, validates, and resolves the config — everything needed before
 /// rendering, but without writing `flake.nix` yet.
-pub(crate) fn load_config(d: &Deps) -> Result<LoadedConfig, ApplicationError> {
-    let settings = d.repo.read_settings()?;
+pub(crate) fn load_config(deps: &Deps) -> Result<LoadedConfig, ApplicationError> {
+    let settings = deps.repo.read_settings()?;
     let override_url = settings
         .and_then(|s| s.override_stable_package)
         .map(|url| url.as_str().to_string());
 
-    d.out.info("Reading configuration...");
-    let mut config = d.repo.read_config()?;
+    deps.out.info("Reading configuration...");
+    let mut config = deps.repo.read_config()?;
 
-    d.out.info("Validating configuration...");
+    deps.out.info("Validating configuration...");
     for diagnostic in
         lnix_domain::validate_config(&config).map_err(lnix_domain::ConfigError::from)?
     {
-        d.out.warn(&diagnostic.to_string());
+        deps.out.warn(&diagnostic.to_string());
     }
-    validate_env_files(d, &config)?;
+    validate_env_files(deps, &config)?;
 
-    resolve_pinned_packages(d, &mut config)?;
+    resolve_pinned_packages(deps, &mut config)?;
 
     Ok(LoadedConfig {
         config,
@@ -45,64 +45,216 @@ pub(crate) fn load_config(d: &Deps) -> Result<LoadedConfig, ApplicationError> {
 }
 
 /// Fails when a dotenv file referenced by the config does not exist.
-fn validate_env_files(d: &Deps, config: &DevShellDefinition) -> Result<(), ApplicationError> {
+fn validate_env_files(deps: &Deps, config: &DevShellDefinition) -> Result<(), ApplicationError> {
     let Some(env) = &config.dev_shell.env else {
         return Ok(());
     };
     for dotenv_path in &env.dotenv {
-        if !d.env.exists(dotenv_path) {
+        if !deps.env.exists(dotenv_path) {
             return Err(lnix_domain::ConfigError::DotenvFileNotFound(dotenv_path.clone()).into());
         }
     }
     Ok(())
 }
 
-/// Resolves pinned package versions and persists any newly resolved
-/// entries back to `lazynix.yaml`.
+/// Populates each pinned entry with its resolved `(commit, attr)`,
+/// preferring the rendered `flake.nix` as the source of truth and
+/// falling back to the version resolver for cache misses. Never
+/// rewrites `lazynix.yaml`; the generated `flake.nix` and `flake.lock`
+/// are the durable record.
+// NOTE: if the resolver errors mid-loop the caller's config is left
+// in a partially-mutated state; safe today because load_config aborts.
 fn resolve_pinned_packages(
-    d: &Deps,
+    deps: &Deps,
     config: &mut DevShellDefinition,
 ) -> Result<(), ApplicationError> {
-    let mut resolved_any = false;
+    let mut cached = deps.flake_reader.read_pinned_inputs()?;
     for entry in &mut config.dev_shell.package.pinned {
-        if entry.resolved_commit.is_some() && entry.resolved_attr.is_some() {
+        if entry.version.as_str().contains('-') {
+            deps.out.warn(&format!(
+                "Version '{}' for '{}' contains '-' which conflicts with the pinned-input separator; skipping flake.nix cache and re-resolving via nix-versions each run.",
+                entry.version, entry.name
+            ));
+        }
+        let key = (entry.name.clone(), entry.version.clone());
+        if let Some(resolution) = cached.remove(&key) {
+            entry.resolved_commit = Some(resolution.commit);
+            entry.resolved_attr = Some(resolution.attr);
             continue;
         }
-        d.out.info(&format!(
+        deps.out.info(&format!(
             "Resolving version for {} @ {}...",
             entry.name, entry.version
         ));
-        let resolved = d.resolver.resolve(&entry.name, &entry.version)?;
+        let resolved = deps.resolver.resolve(&entry.name, &entry.version)?;
         entry.resolved_commit = Some(resolved.commit);
         entry.resolved_attr = Some(resolved.attr);
-        resolved_any = true;
-    }
-
-    if resolved_any {
-        d.repo.write_config(config)?;
-        d.out.info("Updated lazynix.yaml with resolved versions");
     }
     Ok(())
 }
 
 /// Renders the loaded config and persists it as `flake.nix`.
-pub(crate) fn write_flake(d: &Deps, loaded: &LoadedConfig) -> Result<(), ApplicationError> {
-    d.out.info("Generating flake.nix...");
+pub(crate) fn write_flake(deps: &Deps, loaded: &LoadedConfig) -> Result<(), ApplicationError> {
+    deps.out.info("Generating flake.nix...");
     let contents = render_flake(&loaded.config, loaded.override_url.as_deref());
-    d.writer.write_flake(&contents)?;
-    d.out.info("✓ flake.nix generated successfully");
+    deps.flake_writer.write_flake(&contents)?;
+    deps.out.info("✓ flake.nix generated successfully");
     Ok(())
 }
 
 /// Updates `flake.lock` when requested, or reports that it was skipped.
-pub(crate) fn maybe_update_lock(d: &Deps, update_lock: bool) -> Result<(), ApplicationError> {
+pub(crate) fn maybe_update_lock(deps: &Deps, update_lock: bool) -> Result<(), ApplicationError> {
     if update_lock {
-        d.out.info("Updating flake.lock...");
-        d.nix.flake_update()?;
-        d.out.info("flake.lock updated successfully");
+        deps.out.info("Updating flake.lock...");
+        deps.nix.flake_update()?;
+        deps.out.info("flake.lock updated successfully");
     } else {
-        d.out
+        deps.out
             .info("Skipping flake.lock update (use --update to update)");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mocks::*;
+    use lnix_domain::interface::persistence::{
+        ConfigRepository, PinnedResolution, PinnedResolutions,
+    };
+    use std::collections::HashMap;
+
+    fn config_with_pinned(entries: &[(&str, &str)]) -> DevShellDefinition {
+        let mut yaml = String::from("devShell:\n  package:\n    stable: []\n    pinned:\n");
+        for (name, version) in entries {
+            yaml.push_str(&format!(
+                "      - name: {}\n        version: \"{}\"\n",
+                name, version
+            ));
+        }
+        config_from_yaml(&yaml)
+    }
+
+    fn resolutions_from(entries: &[(&str, &str, &str, &str)]) -> PinnedResolutions {
+        let mut inputs: PinnedResolutions = HashMap::new();
+        for (name, version, commit, attr) in entries {
+            inputs.insert(
+                (name.parse().unwrap(), version.parse().unwrap()),
+                PinnedResolution {
+                    commit: (*commit).to_string(),
+                    attr: (*attr).to_string(),
+                },
+            );
+        }
+        inputs
+    }
+
+    #[test]
+    fn cache_hit_skips_resolver() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13")])).with_flake_reader(
+            MockFlakeReader::new(resolutions_from(&[("go", "1.21.13", "5ed6275", "go_1_21")])),
+        );
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        assert!(m.resolver.resolve_calls().is_empty());
+        let pinned = &config.dev_shell.package.pinned[0];
+        assert_eq!(pinned.resolved_commit.as_deref(), Some("5ed6275"));
+        assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
+    }
+
+    #[test]
+    fn cache_miss_calls_resolver() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13")]))
+            .with_flake_reader(MockFlakeReader::empty());
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
+        let pinned = &config.dev_shell.package.pinned[0];
+        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
+        assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
+    }
+
+    #[test]
+    fn no_pinned_entries_no_resolver_calls() {
+        let m = Mocks::with_config(config_from_yaml("devShell:\n  package:\n    stable: []\n"));
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        assert!(m.resolver.resolve_calls().is_empty());
+    }
+
+    #[test]
+    fn flake_reader_error_propagates_as_application_error() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13")]))
+            .with_failing_flake_reader();
+        let mut config = m.repo.read_config().unwrap();
+
+        let result = resolve_pinned_packages(&m.deps(), &mut config);
+
+        assert!(matches!(
+            result,
+            Err(ApplicationError::Flake(lnix_domain::FlakeError::Read(_)))
+        ));
+        assert!(m.resolver.resolve_calls().is_empty());
+    }
+
+    #[test]
+    fn already_resolved_inline_still_uses_cache() {
+        let m = Mocks::with_config(config_from_yaml(
+            "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n        resolvedCommit: OLD\n        resolvedAttr: OLD\n",
+        ))
+        .with_flake_reader(MockFlakeReader::new(resolutions_from(&[(
+            "go", "1.21.13", "NEW_COMMIT", "NEW_ATTR",
+        )])));
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        assert!(m.resolver.resolve_calls().is_empty());
+        let pinned = &config.dev_shell.package.pinned[0];
+        assert_eq!(pinned.resolved_commit.as_deref(), Some("NEW_COMMIT"));
+        assert_eq!(pinned.resolved_attr.as_deref(), Some("NEW_ATTR"));
+    }
+
+    #[test]
+    fn hyphen_in_version_cache_miss_is_ok() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.0.0-rc1")]))
+            .with_flake_reader(MockFlakeReader::empty());
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
+        let warns = m.out.warns().join("\n");
+        assert!(warns.contains("1.0.0-rc1"));
+        let pinned = &config.dev_shell.package.pinned[0];
+        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
+    }
+
+    #[test]
+    fn partial_cache_only_resolves_missing() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13"), ("rust", "1.70.0")]))
+            .with_flake_reader(MockFlakeReader::new(resolutions_from(&[(
+                "go",
+                "1.21.13",
+                "5ed6275",
+                "go_1_21_cached",
+            )])));
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        assert_eq!(m.resolver.resolve_calls(), vec!["rust".to_string()]);
+        let go = &config.dev_shell.package.pinned[0];
+        assert_eq!(go.resolved_commit.as_deref(), Some("5ed6275"));
+        assert_eq!(go.resolved_attr.as_deref(), Some("go_1_21_cached"));
+        let rust = &config.dev_shell.package.pinned[1];
+        assert_eq!(rust.resolved_commit.as_deref(), Some("e607cb5"));
+        assert_eq!(rust.resolved_attr.as_deref(), Some("go_1_21"));
+    }
 }

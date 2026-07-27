@@ -1,5 +1,14 @@
 # Design: Version Pinning (Issue #14)
 
+> **注記 (v0.4 以降)**: 以下は v1.0.0 当時 (廃止) の仕様である。
+> v0.4 以降、pinned の解決結果は生成される `flake.nix` に埋め込まれ、
+> それが真実の情報源 (SSoT) となる。`lazynix.yaml` への書き戻しは行わない。
+> 再実行時は `FlakeReader` ポートが `flake.nix` から `(commit, attr)` を
+> 復元し、キャッシュヒット時は resolver 呼び出しをスキップする。
+> pre-release 表記 (`1.0.0-rc1` など) の version は flake input 名の区切り
+> `-` と衝突するため cache 対象外 (毎回 resolver を呼ぶ)。
+> 詳細な本文は歴史的記録として残置している。
+
 ## Goal
 
 LazyNix で個々のパッケージのバージョンを指定できるようにする。
@@ -15,7 +24,7 @@ nix-versions をラップし、バージョン検索と flake.nix への統合�
 | 4 | flake input 命名 | `nixpkgs--<package>--<version>` |
 | 5 | 検索 CLI | `lnix search <pkg> --version "<constraint>"` |
 | 6 | version の値 | 完全一致のみ |
-| 7 | 解決済みコミット保持 | lazynix.yaml に `resolvedCommit`, `resolvedAttr` を自動追記 |
+| 7 | 解決済みコミット保持 | lazynix.yaml に `resolvedCommit`, `resolvedAttr` を自動追記 (※v0.4 以降廃止 — 現行は flake.nix が SSoT) |
 | 8 | パッケージ配置 | stable / unstable / pinned の3セクション |
 
 ---
@@ -173,7 +182,7 @@ pub struct PinnedPackageEntry {
 4. nix-versions を呼び出して解決:
    $ nix run github:vic/nix-versions -- --json --one '<name>@<version>'
    → { "installable": "nixpkgs/<commit>#<attr>" }
-5. resolvedCommit と resolvedAttr を lazynix.yaml に書き戻す
+5. resolvedCommit と resolvedAttr を lazynix.yaml に書き戻す (※v0.4 以降廃止 — flake.nix に埋め込む)
 6. flake.nix を生成 (pinned inputs を含む)
 7. nix develop を実行
 ```
@@ -262,7 +271,7 @@ $ lnix search go --version ">=1.20" --json --one
 - `cli_parser.rs`: `Search` サブコマンド追加
 - `main.rs`: search コマンドのハンドリング追加
 - `main.rs`: develop コマンドに version resolution ステップ追加
-- lazynix.yaml への書き戻しロジック追加 (resolvedCommit, resolvedAttr)
+- lazynix.yaml への書き戻しロジック追加 (resolvedCommit, resolvedAttr) (※v0.4 以降廃止)
 
 ### `nix-dispatcher`
 
