@@ -9,9 +9,9 @@ name: lint__github_actions
 #   zizmor:     supply-chain 観点のセキュリティ監査
 # 3 ツールは互いに独立した観点を持つため job を分離し、片方が落ちても他方を実行する。
 
+# CONSTRAINT: push トリガーを付けてはならない。
+# REASON: 配信先は PR 必須運用で、push 起動は PR 検査済み commit の再実行になり課金が重複するため。
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
 
