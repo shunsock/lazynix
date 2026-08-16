@@ -19,7 +19,7 @@ permissions:
 jobs:
   csharpier:
     name: csharpier
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     timeout-minutes: 5
     permissions:
       contents: read
