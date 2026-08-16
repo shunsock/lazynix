@@ -20,7 +20,7 @@ permissions:
 jobs:
   shell_lint:
     name: shfmt & shellcheck
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     timeout-minutes: 5
     permissions:
       contents: read
