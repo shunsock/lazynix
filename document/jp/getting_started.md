@@ -137,6 +137,16 @@ lnix develop --update
 
 > **重要:** `lnix develop` は実行のたびに `lazynix.yaml` から `flake.nix` を再生成します。`flake.nix` を手動で編集していた場合、その変更は上書きされます。この設計判断の詳細と、純粋なNixへの移行方法については [設計思想](./philosophy.md) を参照してください。
 
+## flake.nix だけを生成する
+
+シェルに入らず、コマンドも実行せずに `flake.nix` だけを再生成できます。`flake.lock` にも触れません。たとえば、CI で `lazynix.yaml` から有効な flake を生成できるか検証するときに役立ちます。コミット前に編集の影響を確認したいときにも便利です。
+
+```bash
+lnix generate
+```
+
+このコマンドは `lazynix.yaml` を読み込み、その結果を `flake.nix` に書き出して終了します。設定に `pinned` パッケージがない場合、`generate` は完全にオフラインで動作します。Nix のサブプロセスを一度も起動しないため、Nix がインストールされていない環境でも動作します。
+
 ## コマンドを実行する
 
 対話的なシェルに入る必要がない場合もあります。環境内でコマンドをひとつだけ実行したいときは `lnix run` を使います:
@@ -287,6 +297,33 @@ lnix update
 
 lock を更新してすぐに作業を始めたいときは `lnix develop --update` を、lock 更新自体が目的のときは `lnix update` を使ってください。
 
+## 環境変数を読み込む
+
+実際のプロジェクトには環境変数が必要です。API キー、`PYTHONPATH` の上書き、フィーチャーフラグなどです。`devShell.env` を使うと、`.env` ファイルから読み込んだり、`lazynix.yaml` に直接定義したり、その両方を組み合わせたりできます:
+
+```yaml
+devShell:
+  package:
+    stable:
+      - name: python312
+
+  env:
+    dotenv:
+      - .env
+      - .env.local
+
+    envvar:
+      - name: PYTHONPATH
+        value: ./src
+      - name: LOG_LEVEL
+        value: info
+```
+
+- **`env.dotenv`** --- 読み込む `.env` ファイルのリストです。順番に読み込まれ、後のファイルが前のファイルを上書きします。gitignore 対象の `.env.local` で、コミットした `.env` の値を上書きできます。
+- **`env.envvar`** --- `lazynix.yaml` に直接定義する変数で、それぞれ `name` と `value` を持ちます。全開発者で共通の値で、`.env` ファイルにする必要のない値に使います。
+
+両方の値は同じ環境に反映されます。ただし、反映のタイミングはコマンドによって異なります。`lnix develop`・`lnix run`・`lnix test` は実行前に `flake.nix` を再生成します。そのため最新の `env` が反映されます。`lnix run --no-regen` は再生成をスキップします。`lnix task` も `flake.nix` を再生成しません。どちらの場合も、先に `lnix generate` を実行してから使ってください。
+
 ## シェルエイリアスの読み込み
 
 `alias ll='ls -la'` のようなシェルエイリアスは便利ですが、`shellHook` の中に直接書くと役割が入り混じります。`devShell.shellAlias` を使うと、外部のエイリアスファイルを指定でき、LazyNix はその中の `alias …` 行を抽出して開発シェル起動時に評価します。
@@ -317,11 +354,13 @@ devShell:
 - `lnix init` でLazyNixプロジェクトを作成した
 - `lazynix.yaml` でPython開発環境を設定した
 - `lnix develop` で環境に入った
+- シェルにも Nix のサブプロセスにも触れず、`lnix generate` で `flake.nix` だけを再生成した
 - `lnix run` でコマンドを実行し、再利用可能なタスクを定義した
 - `lnix lint` で設定を検証した
 - `devShell.package.pinned` で個別のパッケージを特定バージョンへ固定し、解決された nixpkgs コミットを LazyNix に `flake.nix` へ埋め込ませた
 - `lnix search` で利用可能なバージョンを検索した
 - `lnix update` で `flake.lock` の更新だけを行った
+- `devShell.env` で `.env` ファイルとインラインの YAML から環境変数を読み込んだ
 - `devShell.shellAlias` で外部ファイルからシェルエイリアスを読み込んだ
 
 ## 次のステップ

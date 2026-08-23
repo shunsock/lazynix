@@ -27,7 +27,7 @@ devShell:
   # Optional: Environment variables configuration
   # Load variables from .env files and/or define them directly in YAML
   # Remove the comment marks (#) to use this feature
-  # See documentation: docs/attribute/dotenv/README.md
+  # See documentation: README.md "Configure Your Environment"
   # env:
   #   dotenv:
   #     - .env              # Load from .env file
@@ -37,6 +37,19 @@ devShell:
   #       value: ./src
   #     - name: LOG_LEVEL
   #       value: info
+
+  # Optional: Named workflows invoked via 'lnix task <name>'
+  # Each task has commands and an optional description
+  # Remove the comment marks (#) and add your own tasks
+  # task:
+  #   fmt:
+  #     description: "Format sources"
+  #     commands:
+  #       - "cargo fmt"
+  #   review:
+  #     description: "Run a subset of tests via CLI_ARGS"
+  #     commands:
+  #       - "cargo test {{.CLI_ARGS}}"
 
   # Optional: Test commands executed by 'lnix test'
   # Tests run sequentially in the development environment
