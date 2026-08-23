@@ -36,7 +36,7 @@ mod tests {
         let code = test(&m.deps(), false).unwrap();
 
         assert_eq!(code, 0);
-        assert!(m.writer.written().is_some());
+        assert!(m.flake_writer.written().is_some());
         assert_eq!(m.nix.test_calls(), 1);
         assert!(
             m.reporter
@@ -55,7 +55,7 @@ mod tests {
         let result = test(&m.deps(), false);
 
         assert!(matches!(result, Err(ApplicationError::NoTestCommands)));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert_eq!(m.nix.test_calls(), 0);
     }
 }

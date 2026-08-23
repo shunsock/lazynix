@@ -46,7 +46,7 @@ mod tests {
         let code = run(&m.deps(), false, true, vec!["echo".into(), "hi".into()]).unwrap();
 
         assert_eq!(code, 0);
-        assert!(m.writer.written().is_some());
+        assert!(m.flake_writer.written().is_some());
         assert_eq!(
             m.nix.develop_command_args().unwrap(),
             vec!["echo".to_string(), "hi".to_string()]
@@ -60,7 +60,7 @@ mod tests {
         let code = run(&m.deps(), false, false, vec!["true".into()]).unwrap();
 
         assert_eq!(code, 0);
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert!(
             m.reporter
                 .events()

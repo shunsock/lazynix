@@ -245,21 +245,11 @@ devShell:
         version: "1.21.13"
 ```
 
-3. Run `lnix develop`. LazyNix invokes `nix-versions` to look up the nixpkgs commit hash and Nix attribute path for that version, and the resolved metadata is written back to `lazynix.yaml` as `resolvedCommit` and `resolvedAttr`:
+3. Run `lnix develop`. LazyNix invokes `nix-versions` to look up the nixpkgs commit hash and Nix attribute path for that version, then embeds the resolved commit into the generated `flake.nix` as its input URL. Subsequent runs read that `flake.nix` directly, so `nix-versions` is called at most once per (name, version) pair. `lazynix.yaml` itself stays untouched — the `flake.nix` **is** the cache.
 
-```yaml
-devShell:
-  package:
-    pinned:
-      - name: go
-        version: "1.21.13"
-        resolvedCommit: "5ed6275"
-        resolvedAttr: "go_1_21"
-```
+Every developer on your team gets exactly Go 1.21.13, without any drift or repeated network lookups.
 
-Once resolved, subsequent runs reuse the cached resolution — no repeated network lookups, no drift. Every developer on your team gets exactly Go 1.21.13.
-
-> **Note:** `lnix lint` validates `stable`, `unstable`, **and** `pinned` packages. For `pinned` entries whose `resolvedCommit` / `resolvedAttr` are not yet cached in `lazynix.yaml`, `lint` additionally asks `nix-versions` whether the requested version can still be resolved — so a typo in the version constraint is caught before the next `lnix develop`.
+> **Note:** `lnix lint` validates `stable`, `unstable`, **and** `pinned` packages. For each `pinned` entry, `lint` additionally asks `nix-versions` whether the requested version can still be resolved — so a typo in the version constraint is caught before the next `lnix develop`.
 
 ## Searching for Available Versions
 
@@ -329,7 +319,7 @@ In this guide, you have:
 - Entered the environment with `lnix develop`
 - Run commands with `lnix run` and defined reusable tasks
 - Validated your configuration with `lnix lint`
-- Pinned an individual package to a specific version with `devShell.package.pinned`, letting LazyNix populate `resolvedCommit` and `resolvedAttr`
+- Pinned an individual package to a specific version with `devShell.package.pinned`, letting LazyNix embed the resolved nixpkgs commit into the generated `flake.nix`
 - Discovered available versions with `lnix search`
 - Refreshed `flake.lock` in isolation with `lnix update`
 - Loaded shell aliases from external files with `devShell.shellAlias`

@@ -11,6 +11,8 @@ use crate::error::ParseError;
 /// - non-empty
 /// - only alphanumerics, `-`, `_`, and `.`
 /// - dots may appear only between segments (no leading/trailing/double dots)
+/// - no consecutive hyphens (`--`); the pinned-input naming scheme
+///   uses `--` as a name/version separator and must stay unambiguous
 ///
 /// The character restriction doubles as a shell-injection guard:
 /// a `PackageName` can be safely embedded in `nix` command arguments.
@@ -25,7 +27,12 @@ impl PackageName {
 }
 
 fn is_valid_package_name(name: &str) -> bool {
-    if name.is_empty() || name.starts_with('.') || name.ends_with('.') || name.contains("..") {
+    if name.is_empty()
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || name.contains("..")
+        || name.contains("--")
+    {
         return false;
     }
     name.chars()
@@ -69,7 +76,6 @@ mod tests {
 
     #[test]
     fn accepts_simple_and_nested_attribute_names() {
-        // Arrange
         let valid_names = [
             "python312",
             "rust-analyzer",
@@ -78,7 +84,6 @@ mod tests {
             "lib.strings.concatStringsSep",
         ];
 
-        // Act & Assert
         for name in valid_names {
             assert!(name.parse::<PackageName>().is_ok(), "should accept {name}");
         }
@@ -86,7 +91,6 @@ mod tests {
 
     #[test]
     fn rejects_invalid_names() {
-        // Arrange
         let invalid_names = [
             "",
             "pkg@version",
@@ -97,7 +101,6 @@ mod tests {
             "pkg..name",
         ];
 
-        // Act & Assert
         for name in invalid_names {
             assert!(
                 name.parse::<PackageName>().is_err(),
@@ -108,11 +111,21 @@ mod tests {
 
     #[test]
     fn rejects_shell_metacharacters() {
-        // Arrange
         let injection_attempts = ["pkg$var", "pkg;cmd", "pkg|cmd", "vim `whoami`"];
 
-        // Act & Assert
         for name in injection_attempts {
+            assert!(
+                name.parse::<PackageName>().is_err(),
+                "should reject {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_consecutive_hyphens() {
+        let ambiguous_names = ["foo--bar", "a--b--c", "pkg--"];
+
+        for name in ambiguous_names {
             assert!(
                 name.parse::<PackageName>().is_err(),
                 "should reject {name:?}"

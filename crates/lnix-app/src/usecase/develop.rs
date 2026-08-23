@@ -32,7 +32,7 @@ mod tests {
         let code = develop(&m.deps(), false).unwrap();
 
         assert_eq!(code, 0);
-        assert!(m.writer.written().unwrap().contains("bash"));
+        assert!(m.flake_writer.written().unwrap().contains("bash"));
         assert_eq!(m.nix.develop_calls(), 1);
         assert!(
             m.reporter
@@ -76,7 +76,7 @@ mod tests {
             result,
             Err(ApplicationError::Config(ConfigError::NotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
         assert_eq!(m.nix.develop_calls(), 0);
     }
 
@@ -93,22 +93,23 @@ mod tests {
             result,
             Err(ApplicationError::Config(ConfigError::DotenvFileNotFound(_)))
         ));
-        assert!(m.writer.written().is_none());
+        assert!(m.flake_writer.written().is_none());
     }
 
     #[test]
-    fn resolves_pinned_packages_and_persists_them() {
+    fn resolves_pinned_packages_and_renders_them_into_flake() {
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable:\n      - name: bash\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n",
         ));
 
         develop(&m.deps(), false).unwrap();
 
-        let persisted = m.repo.persisted_config().unwrap();
-        let pinned = &persisted.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
-        assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
-        assert!(m.writer.written().unwrap().contains("go_1_21"));
+        let written = m
+            .flake_writer
+            .written()
+            .expect("flake.nix should be written");
+        assert!(written.contains("e607cb5"));
+        assert!(written.contains("go_1_21"));
     }
 
     #[test]

@@ -4,8 +4,28 @@
 //! an output parameter, a `let` binding importing that revision, and a
 //! `buildInputs` entry. Only packages whose version has already been
 //! resolved to a commit + attribute are emitted.
+//!
+//! The naming constants below are also imported by the reader adapter
+//! (see `lnix_infra::persistence::flake_reader`); keeping them in one
+//! place prevents silent breakage when the writer format changes.
 
 use crate::{DevShellDefinition, PinnedPackageEntry};
+
+/// Prefix of a flake input name for a pinned package
+/// (`nixpkgs--<name>--<dashed-version>`).
+pub const PINNED_INPUT_PREFIX: &str = "nixpkgs--";
+
+/// Suffix appended to an input name when it becomes a `.url = ...` line
+/// in the flake, including the surrounding space and `=`.
+pub const PINNED_INPUT_URL_SUFFIX: &str = ".url =";
+
+/// Prefix of the `let`-binding / `buildInputs` name for a pinned
+/// package (`pinnedPkgs-<name>-<dashed-version>`).
+pub const PINNED_BINDING_PREFIX: &str = "pinnedPkgs-";
+
+/// Prefix of the resolved `.url` value that points at a specific
+/// nixpkgs commit (`github:NixOS/nixpkgs/<commit>`).
+pub const PINNED_URL_COMMIT_PREFIX: &str = "github:NixOS/nixpkgs/";
 
 fn normalize_version(version: &str) -> String {
     version.replace('.', "-")
@@ -13,7 +33,8 @@ fn normalize_version(version: &str) -> String {
 
 fn input_name(entry: &PinnedPackageEntry) -> String {
     format!(
-        "nixpkgs--{}--{}",
+        "{}{}--{}",
+        PINNED_INPUT_PREFIX,
         entry.name,
         normalize_version(entry.version.as_str())
     )
@@ -21,7 +42,8 @@ fn input_name(entry: &PinnedPackageEntry) -> String {
 
 fn binding_name(entry: &PinnedPackageEntry) -> String {
     format!(
-        "pinnedPkgs-{}-{}",
+        "{}{}-{}",
+        PINNED_BINDING_PREFIX,
         entry.name,
         normalize_version(entry.version.as_str())
     )
@@ -114,29 +136,23 @@ resolvedAttr: "go_1_21"
 
     #[test]
     fn normalizes_dots_to_hyphens() {
-        // Arrange / Act / Assert
         assert_eq!(normalize_version("1.21.13"), "1-21-13");
     }
 
     #[test]
     fn derives_input_and_binding_names() {
-        // Arrange
         let entry = resolved_go();
 
-        // Act / Assert
         assert_eq!(input_name(&entry), "nixpkgs--go--1-21-13");
         assert_eq!(binding_name(&entry), "pinnedPkgs-go-1-21-13");
     }
 
     #[test]
     fn renders_input_pinned_to_commit() {
-        // Arrange
         let entry = resolved_go();
 
-        // Act
         let inputs = render_inputs(&[&entry]);
 
-        // Assert
         assert_eq!(
             inputs,
             "    nixpkgs--go--1-21-13.url = \"github:NixOS/nixpkgs/e607cb5\";"
@@ -145,7 +161,6 @@ resolvedAttr: "go_1_21"
 
     #[test]
     fn output_params_are_empty_without_resolved_entries() {
-        // Arrange / Act / Assert
         assert_eq!(render_output_params(&[]), "");
     }
 }

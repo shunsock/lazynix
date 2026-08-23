@@ -3,10 +3,12 @@
 
 mod config_repository;
 mod env_file;
+mod flake_reader;
 mod flake_writer;
 mod scaffolder;
 
 pub use config_repository::ConfigRepository;
 pub use env_file::EnvFilePresenceChecker;
+pub use flake_reader::{FlakeReader, PinnedResolution, PinnedResolutions};
 pub use flake_writer::FlakeWriter;
 pub use scaffolder::ProjectScaffolder;

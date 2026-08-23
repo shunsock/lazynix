@@ -26,6 +26,7 @@ pub use definition::{
     TaskDef, validate_config,
 };
 pub use error::{ConfigError, Diagnostic, FlakeError, NixError, ParseError, ValidationError};
+pub use interface::persistence::{FlakeReader, FlakeWriter};
 pub use service::flake::render_flake;
 pub use service::lint::{
     PackageValidationError, ValidationResult, classify_nix_eval_error, format_validation_result,

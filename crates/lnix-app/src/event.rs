@@ -22,7 +22,10 @@ pub enum UseCaseEvent {
         name: PackageName,
         version: PackageVersion,
     },
-    UpdatedYamlWithResolvedVersions,
+    PinnedVersionSeparatorConflict {
+        name: PackageName,
+        version: PackageVersion,
+    },
     GeneratingFlake,
     FlakeGenerated,
     UpdatingLock,

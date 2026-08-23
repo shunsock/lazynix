@@ -2,10 +2,10 @@
 //!
 //! The composition root wires this adapter as the concrete
 //! [`ReporterPort`] implementation. Rendering logic lives in the pure
-//! function [`render_event`] so it can be exercised without stdout
-//! capture; [`TerminalPresenter::report`] is a thin write-through that
-//! sends stdout lines to `println!` and the single stderr variant
-//! ([`UseCaseEvent::ConfigDiagnostic`]) to `eprintln!`.
+//! functions [`render_event`] and [`render_warning`] so they can be
+//! exercised without stdout capture; [`TerminalPresenter::report`] is a
+//! thin write-through that sends warnings to `eprintln!` and everything
+//! else to `println!`.
 //!
 //! Placement note: this adapter lives in the `lnix` bin crate rather
 //! than `lnix-infra` because `ReporterPort` is defined in `lnix-app`
@@ -19,8 +19,8 @@ pub struct TerminalPresenter;
 
 impl ReporterPort for TerminalPresenter {
     fn report(&self, event: &UseCaseEvent) {
-        if let UseCaseEvent::ConfigDiagnostic(message) = event {
-            eprintln!("Warning: {message}");
+        if let Some(warning) = render_warning(event) {
+            eprintln!("Warning: {warning}");
             return;
         }
         for line in render_event(event) {
@@ -29,17 +29,27 @@ impl ReporterPort for TerminalPresenter {
     }
 }
 
+/// Renders the events that belong on stderr, or `None` when the event
+/// is ordinary progress output.
+fn render_warning(event: &UseCaseEvent) -> Option<String> {
+    match event {
+        UseCaseEvent::ConfigDiagnostic(message) => Some(message.clone()),
+        UseCaseEvent::PinnedVersionSeparatorConflict { name, version } => Some(format!(
+            "Version '{version}' for '{name}' contains '-' which conflicts with the pinned-input separator; skipping flake.nix cache and re-resolving via nix-versions each run."
+        )),
+        _ => None,
+    }
+}
+
 fn render_event(event: &UseCaseEvent) -> Vec<String> {
     match event {
         UseCaseEvent::ReadingConfig => vec!["Reading configuration...".to_string()],
         UseCaseEvent::ValidatingConfig => vec!["Validating configuration...".to_string()],
-        // SEE: report() で ConfigDiagnostic は早期リターン、この arm は exhaustiveness 用
+        // SEE: 下 2 arm は render_warning が拾うため、ここは exhaustive 用
         UseCaseEvent::ConfigDiagnostic(_) => Vec::new(),
+        UseCaseEvent::PinnedVersionSeparatorConflict { .. } => Vec::new(),
         UseCaseEvent::ResolvingPinned { name, version } => {
             vec![format!("Resolving version for {name} @ {version}...")]
-        }
-        UseCaseEvent::UpdatedYamlWithResolvedVersions => {
-            vec!["Updated lazynix.yaml with resolved versions".to_string()]
         }
         UseCaseEvent::GeneratingFlake => vec!["Generating flake.nix...".to_string()],
         UseCaseEvent::FlakeGenerated => vec!["✓ flake.nix generated successfully".to_string()],
@@ -127,6 +137,33 @@ mod tests {
     }
 
     #[test]
+    fn renders_config_diagnostic_message_as_warning() {
+        assert_eq!(
+            render_warning(&UseCaseEvent::ConfigDiagnostic("boom".to_string())),
+            Some("boom".to_string())
+        );
+    }
+
+    #[test]
+    fn renders_pinned_version_separator_conflict_as_warning() {
+        let event = UseCaseEvent::PinnedVersionSeparatorConflict {
+            name: "go".parse().unwrap(),
+            version: "1.0.0-rc1".parse().unwrap(),
+        };
+
+        let warning = render_warning(&event).expect("separator conflict warns on stderr");
+
+        assert!(warning.contains("'1.0.0-rc1' for 'go'"));
+        assert!(warning.contains("pinned-input separator"));
+        assert_eq!(render_event(&event), Vec::<String>::new());
+    }
+
+    #[test]
+    fn renders_progress_events_without_a_warning() {
+        assert_eq!(render_warning(&UseCaseEvent::ReadingConfig), None);
+    }
+
+    #[test]
     fn renders_resolving_pinned_with_name_and_version() {
         let event = UseCaseEvent::ResolvingPinned {
             name: "hello".parse().unwrap(),
@@ -135,14 +172,6 @@ mod tests {
         assert_eq!(
             render_event(&event),
             vec!["Resolving version for hello @ 2.12...".to_string()]
-        );
-    }
-
-    #[test]
-    fn renders_updated_yaml_with_resolved_versions_line() {
-        assert_eq!(
-            render_event(&UseCaseEvent::UpdatedYamlWithResolvedVersions),
-            vec!["Updated lazynix.yaml with resolved versions".to_string()]
         );
     }
 

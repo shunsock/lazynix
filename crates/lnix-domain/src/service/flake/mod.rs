@@ -6,7 +6,7 @@
 
 mod build_inputs;
 mod path;
-mod pinned;
+pub mod pinned;
 mod shell_hook;
 mod test_runner;
 
@@ -112,41 +112,32 @@ mod tests {
 
     #[test]
     fn uses_override_stable_url_when_provided() {
-        // Arrange
         let custom_url = "github:NixOS/nixpkgs/nixos-25.06";
 
-        // Act
         let flake = render_from_yaml(BASIC, Some(custom_url));
 
-        // Assert
         assert!(flake.contains(&format!("nixpkgs.url = \"{}\";", custom_url)));
         assert!(!flake.contains("nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";"));
     }
 
     #[test]
     fn falls_back_to_default_stable_url() {
-        // Arrange / Act
         let flake = render_from_yaml(BASIC, None);
 
-        // Assert
         assert!(flake.contains("nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";"));
     }
 
     #[test]
     fn propagates_allow_unfree_flag() {
-        // Arrange
         let yaml = "devShell:\n  allowUnfree: false\n  package:\n    stable:\n      - name: bash\n";
 
-        // Act
         let flake = render_from_yaml(yaml, None);
 
-        // Assert
         assert!(flake.contains("config.allowUnfree = false"));
     }
 
     #[test]
     fn renders_pinned_package_end_to_end() {
-        // Arrange
         let yaml = r#"
 devShell:
   package:
@@ -159,10 +150,8 @@ devShell:
         resolvedAttr: "go_1_21"
 "#;
 
-        // Act
         let flake = render_from_yaml(yaml, None);
 
-        // Assert: input, let binding, and buildInputs entry all present
         assert!(flake.contains("nixpkgs--go--1-21-13.url = \"github:NixOS/nixpkgs/e607cb5\";"));
         assert!(flake.contains("pinnedPkgs-go-1-21-13 = import nixpkgs--go--1-21-13"));
         assert!(flake.contains("pinnedPkgs-go-1-21-13.go_1_21"));
@@ -170,7 +159,6 @@ devShell:
 
     #[test]
     fn skips_unresolved_pinned_package() {
-        // Arrange
         let yaml = r#"
 devShell:
   package:
@@ -181,10 +169,8 @@ devShell:
         version: "1.21.13"
 "#;
 
-        // Act
         let flake = render_from_yaml(yaml, None);
 
-        // Assert
         assert!(!flake.contains("nixpkgs--go--1-21-13"));
         assert!(!flake.contains("pinnedPkgs-go"));
     }

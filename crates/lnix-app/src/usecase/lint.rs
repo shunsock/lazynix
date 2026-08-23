@@ -22,10 +22,9 @@ struct PinnedVerification {
 }
 
 /// Evaluates every declared package (stable + unstable + pinned) via
-/// `nix eval` and, for pinned entries whose commit/attr are not yet
-/// cached, additionally verifies that the requested version can be
-/// resolved. Read-only: never rewrites `lazynix.yaml`.
-/// Exit code 1 when any package fails.
+/// `nix eval` and, for pinned entries, additionally asks the resolver
+/// whether the requested version can still be resolved. Read-only:
+/// never rewrites `lazynix.yaml`. Exit code 1 when any package fails.
 pub fn lint(d: &Deps, verbose: bool, arch: Option<&str>) -> Result<i32, ApplicationError> {
     let config = d.repo.read_config()?;
 
@@ -73,9 +72,9 @@ pub fn lint(d: &Deps, verbose: bool, arch: Option<&str>) -> Result<i32, Applicat
     Ok(exit_code)
 }
 
-/// Verifies pinned entries whose commit/attr are not yet cached and
-/// whose attribute name eval has not already failed. Read-only: never
-/// invokes the config writer, so `lazynix.yaml` is left untouched.
+/// Verifies every pinned entry (that survived name eval) by asking the
+/// resolver whether its requested version can be resolved. Read-only:
+/// never invokes the config writer, so `lazynix.yaml` is left untouched.
 ///
 /// Returns [`PinnedVerification`] pairing each failed package name with
 /// its `VersionNotFound` error, so the caller can update the valid list
@@ -90,9 +89,6 @@ fn verify_pinned_versions(
     let mut failed_names = Vec::new();
     let mut errors = Vec::new();
     for entry in pinned {
-        if entry.resolved_commit.is_some() && entry.resolved_attr.is_some() {
-            continue;
-        }
         if name_eval_failed.contains(entry.name.as_str()) {
             continue;
         }
@@ -246,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn cached_pinned_entry_skips_resolver_call() {
+    fn lint_verifies_pinned_even_when_resolved_fields_present() {
         let m = Mocks::with_config(config_from_yaml(
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n        resolvedCommit: \"e607cb5\"\n        resolvedAttr: \"go_1_21\"\n",
         ));
@@ -254,7 +250,7 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 0);
-        assert!(m.resolver.resolve_calls().is_empty());
+        assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
     }
 
     #[test]
@@ -266,7 +262,6 @@ mod tests {
         let _ = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
-        assert!(m.repo.persisted_config().is_none());
     }
 
     #[test]

@@ -245,21 +245,11 @@ devShell:
         version: "1.21.13"
 ```
 
-3. `lnix develop` を実行します。LazyNix は `nix-versions` を呼び出して、そのバージョンに対応する nixpkgs のコミットハッシュと Nix の attribute path を解決し、結果を `resolvedCommit` と `resolvedAttr` として `lazynix.yaml` に書き戻します:
+3. `lnix develop` を実行します。LazyNix は `nix-versions` を呼び出して、そのバージョンに対応する nixpkgs のコミットハッシュと Nix の attribute path を解決し、解決したコミットを生成される `flake.nix` の入力 URL に埋め込みます。以降の実行はその `flake.nix` を直接読むため、`nix-versions` の呼び出しは (name, version) の組ごとに最大 1 回で済みます。`lazynix.yaml` 自体には手を加えません — `flake.nix` **こそがキャッシュ**です。
 
-```yaml
-devShell:
-  package:
-    pinned:
-      - name: go
-        version: "1.21.13"
-        resolvedCommit: "5ed6275"
-        resolvedAttr: "go_1_21"
-```
+チームの誰もが正確に Go 1.21.13 を手に入れます。ネットワーク参照の繰り返しもドリフトも起こりません。
 
-一度解決されれば、以降の実行はキャッシュされた解決結果を再利用します。ネットワーク参照の繰り返しもドリフトもありません。チームの誰もが正確に Go 1.21.13 を手に入れます。
-
-> **補足:** `lnix lint` は `stable`・`unstable`・`pinned` のすべてのパッケージを検証します。`pinned` エントリで `resolvedCommit` / `resolvedAttr` が `lazynix.yaml` にまだキャッシュされていない場合、`lint` は `nix-versions` に問い合わせて指定されたバージョンが現在も解決可能かも確認します。バージョン指定のタイプミスは次の `lnix develop` を待たずにここで検出されます。
+> **補足:** `lnix lint` は `stable`・`unstable`・`pinned` のすべてのパッケージを検証します。`pinned` エントリごとに `lint` は `nix-versions` へ問い合わせて指定されたバージョンが現在も解決可能かを確認します。バージョン指定のタイプミスは次の `lnix develop` を待たずにここで検出されます。
 
 ## 利用可能なバージョンを検索する
 
@@ -329,7 +319,7 @@ devShell:
 - `lnix develop` で環境に入った
 - `lnix run` でコマンドを実行し、再利用可能なタスクを定義した
 - `lnix lint` で設定を検証した
-- `devShell.package.pinned` で個別のパッケージを特定バージョンへ固定し、LazyNix に `resolvedCommit` と `resolvedAttr` を書き込ませた
+- `devShell.package.pinned` で個別のパッケージを特定バージョンへ固定し、解決された nixpkgs コミットを LazyNix に `flake.nix` へ埋め込ませた
 - `lnix search` で利用可能なバージョンを検索した
 - `lnix update` で `flake.lock` の更新だけを行った
 - `devShell.shellAlias` で外部ファイルからシェルエイリアスを読み込んだ

@@ -7,8 +7,8 @@ devShell:
     # Optional: Pin a package to a specific version (resolved via nix-versions).
     # Each entry needs `name` and `version`, NOT a single string like `cowsay_3.0.0`.
     # Find available versions with: lnix search <name>
-    # After the first `lnix develop`, resolvedCommit / resolvedAttr are filled
-    # in automatically and written back to this file.
+    # The resolved nixpkgs commit is embedded in the generated flake.nix,
+    # so subsequent runs skip the nix-versions call. This file stays untouched.
     # To use: replace `pinned: []` below with the commented entries (remove the # marks)
     pinned: []
     #   - name: go
