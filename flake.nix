@@ -9,6 +9,11 @@
 
   outputs = { self, nixpkgs, crane, flake-utils }:
     let
+      # CONSTRAINT: Cargo.toml の workspace version と一致させなくてはならない。
+      # REASON: 乖離すると Nix メタデータと lnix --version の出力が食い違うため。
+      pname = "lnix";
+      version = "0.4.0";
+
       # Release target systems for cross-compilation
       releaseSystems = {
         x86_64-linux = {
@@ -55,8 +60,7 @@
           strictDeps = true;
 
           # Explicitly set package name and version
-          pname = "lnix";
-          version = "1.0.0";
+          inherit pname version;
 
           # Specify target for cross-compilation
           CARGO_BUILD_TARGET = rustTarget;
@@ -114,8 +118,7 @@
           strictDeps = true;
 
           # Explicitly set package name and version
-          pname = "lnix";
-          version = "1.0.0";
+          inherit pname version;
 
           # MacOS-specific dependencies
           buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
