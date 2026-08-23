@@ -4,11 +4,12 @@ use std::collections::HashSet;
 
 use lnix_domain::{
     NixError, PackageName, PackageValidationError, PinnedPackageEntry, ValidationResult,
-    classify_nix_eval_error, format_validation_result, format_validation_result_verbose,
+    classify_nix_eval_error,
 };
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 
 /// Result of verifying pinned entries against the version resolver.
 /// `failed_names` lets the caller exclude broken packages from the
@@ -37,7 +38,7 @@ pub fn lint(d: &Deps, verbose: bool, arch: Option<&str>) -> Result<i32, Applicat
     let packages: Vec<PackageName> = channel_names.chain(pinned_names).collect();
 
     if packages.is_empty() {
-        d.out.info("No packages to validate.");
+        d.reporter.report(&UseCaseEvent::NoPackagesToValidate);
         return Ok(0);
     }
 
@@ -64,14 +65,11 @@ pub fn lint(d: &Deps, verbose: bool, arch: Option<&str>) -> Result<i32, Applicat
         errors,
     };
 
-    let report = if verbose {
-        format_validation_result_verbose(&result)
-    } else {
-        format_validation_result(&result)
-    };
-    d.out.info(report.trim_end());
+    let exit_code = if result.errors.is_empty() { 0 } else { 1 };
+    d.reporter
+        .report(&UseCaseEvent::ValidationReport { result, verbose });
 
-    Ok(if result.errors.is_empty() { 0 } else { 1 })
+    Ok(exit_code)
 }
 
 /// Verifies every pinned entry (that survived name eval) by asking the
@@ -117,6 +115,7 @@ fn verify_pinned_versions(
 mod tests {
     use super::*;
     use crate::mocks::*;
+    use lnix_domain::PackageValidationError;
 
     #[test]
     fn empty_package_list_succeeds_without_evaluating() {
@@ -126,9 +125,10 @@ mod tests {
 
         assert_eq!(code, 0);
         assert!(
-            m.out
-                .infos()
-                .contains(&"No packages to validate.".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::NoPackagesToValidate))
         );
     }
 
@@ -141,12 +141,17 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 0);
-        assert!(
-            m.out
-                .infos()
-                .iter()
-                .any(|line| line.contains("✓") && line.contains("2 package(s)"))
-        );
+        let report = m
+            .reporter
+            .events()
+            .into_iter()
+            .find_map(|e| match e {
+                UseCaseEvent::ValidationReport { result, .. } => Some(result),
+                _ => None,
+            })
+            .expect("expected ValidationReport event");
+        assert_eq!(report.valid_packages.len(), 2);
+        assert!(report.errors.is_empty());
     }
 
     #[test]
@@ -159,9 +164,30 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 1);
-        let report = m.out.infos().join("\n");
-        assert!(report.contains("PACKAGE_NOT_FOUND"));
-        assert!(report.contains("ghost-pkg"));
+        let report = m
+            .reporter
+            .events()
+            .into_iter()
+            .find_map(|e| match e {
+                UseCaseEvent::ValidationReport { result, .. } => Some(result),
+                _ => None,
+            })
+            .expect("expected ValidationReport event");
+        assert!(report.errors.iter().any(|err| matches!(
+            err,
+            PackageValidationError::PackageNotFound { package } if package == "ghost-pkg"
+        )));
+    }
+
+    fn extract_report(m: &Mocks) -> ValidationResult {
+        m.reporter
+            .events()
+            .into_iter()
+            .find_map(|e| match e {
+                UseCaseEvent::ValidationReport { result, .. } => Some(result),
+                _ => None,
+            })
+            .expect("expected ValidationReport event")
     }
 
     #[test]
@@ -173,13 +199,15 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 0);
-        let infos = m.out.infos();
-        assert!(!infos.contains(&"No packages to validate.".to_string()));
         assert!(
-            infos
+            !m.reporter
+                .events()
                 .iter()
-                .any(|line| line.contains("✓") && line.contains("1 package(s)"))
+                .any(|e| matches!(e, UseCaseEvent::NoPackagesToValidate))
         );
+        let report = extract_report(&m);
+        assert_eq!(report.valid_packages.len(), 1);
+        assert!(report.errors.is_empty());
     }
 
     #[test]
@@ -192,9 +220,11 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 1);
-        let report = m.out.infos().join("\n");
-        assert!(report.contains("PACKAGE_NOT_FOUND"));
-        assert!(report.contains("ghost-pkg"));
+        let report = extract_report(&m);
+        assert!(report.errors.iter().any(|err| matches!(
+            err,
+            PackageValidationError::PackageNotFound { package } if package == "ghost-pkg"
+        )));
     }
 
     #[test]
@@ -206,12 +236,9 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 0);
-        let infos = m.out.infos();
-        assert!(
-            infos
-                .iter()
-                .any(|line| line.contains("✓") && line.contains("2 package(s)"))
-        );
+        let report = extract_report(&m);
+        assert_eq!(report.valid_packages.len(), 2);
+        assert!(report.errors.is_empty());
     }
 
     #[test]
@@ -247,12 +274,8 @@ mod tests {
 
         assert_eq!(code, 0);
         assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
-        let infos = m.out.infos();
-        assert!(
-            infos
-                .iter()
-                .any(|line| line.contains("✓") && line.contains("2 package(s)"))
-        );
+        let report = extract_report(&m);
+        assert_eq!(report.valid_packages.len(), 2);
     }
 
     #[test]
@@ -293,10 +316,12 @@ mod tests {
         let code = lint(&m.deps(), false, None).unwrap();
 
         assert_eq!(code, 1);
-        let report = m.out.infos().join("\n");
-        assert!(report.contains("VERSION_NOT_FOUND"));
-        assert!(report.contains("go"));
-        assert!(report.contains("9.9.9"));
+        let report = extract_report(&m);
+        assert!(report.errors.iter().any(|err| matches!(
+            err,
+            PackageValidationError::VersionNotFound { package, version, .. }
+            if package == "go" && version == "9.9.9"
+        )));
     }
 
     #[test]
@@ -310,10 +335,10 @@ mod tests {
 
         assert_eq!(code, 1);
         assert!(
-            m.out
-                .infos()
+            m.reporter
+                .events()
                 .iter()
-                .any(|line| line.contains("Verbose Error Details"))
+                .any(|e| matches!(e, UseCaseEvent::ValidationReport { verbose: true, .. }))
         );
     }
 }

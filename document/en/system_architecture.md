@@ -11,7 +11,7 @@ crates/
   lnix/          # Binary: CLI entry point (clap parsing + composition root)
   lnix-app/      # Library: use-cases (init/update/generate/develop/run/test/task/lint/search)
   lnix-domain/   # Library: pure domain — definitions, services, ports, value objects
-  lnix-infra/    # Library: adapters — filesystem, nix subprocess, nix-versions, stdout
+  lnix-infra/    # Library: adapters — filesystem, nix subprocess, nix-versions
 ```
 
 The design follows a hexagonal ("ports and adapters") layout. `lnix-domain` is the innermost layer and performs no I/O. `lnix-app` orchestrates use-cases by talking only to traits (ports) that live in `lnix-domain`. `lnix-infra` supplies the concrete adapters, and the `lnix` binary is the composition root that wires everything together.
@@ -44,11 +44,13 @@ The binary itself contains no business logic. `main.rs` parses arguments, constr
 **Crate:** `lnix-app` (library)
 **Responsibility:** orchestrate use-cases against domain ports.
 
-Each subcommand maps to a function under `usecase/` shaped as `fn(&Deps, ...) -> Result<i32, ApplicationError>`. `Deps` is a borrowed bundle of every port a use-case may touch: `ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`, `NixRunner`, `NixEvaluator`, `VersionResolver`, and `OutputPort`.
+Each subcommand maps to a function under `usecase/` shaped as `fn(&Deps, ...) -> Result<i32, ApplicationError>`. `Deps` is a borrowed bundle of every port a use-case may touch: `ConfigRepository`, `FlakeWriter`, `FlakeReader`, `EnvFilePresenceChecker`, `ProjectScaffolder`, `NixRunner`, `NixEvaluator`, `VersionResolver`, and `ReporterPort`.
+
+Use-cases never assemble UI copy. They emit progress as `UseCaseEvent` values — the semantic vocabulary defined in `lnix-app` — through `ReporterPort`, and the `TerminalPresenter` in the `lnix` binary maps those events to wording and layout. JSON output, a TUI, `--quiet`, and i18n are therefore presenter swaps rather than use-case rewrites.
 
 The flake-generating use-cases (`develop`, `test`, `run`) share a common prefix defined in `pipeline.rs`:
 
-1. `load_config` — read settings, read `lazynix.yaml`, run `validate_config` (diagnostics are surfaced via `OutputPort::warn`), check that referenced dotenv files exist, then resolve any pinned packages and persist the resolutions back into `lazynix.yaml`.
+1. `load_config` — read settings, read `lazynix.yaml`, run `validate_config` (diagnostics are emitted as `UseCaseEvent::ConfigDiagnostic`), check that referenced dotenv files exist, then resolve any pinned packages. Resolutions are embedded in the generated `flake.nix` and `lazynix.yaml` is never rewritten; on later runs the `FlakeReader` port recovers `(commit, attr)` from `flake.nix` and cache hits skip the resolver.
 2. `write_flake` — call `lnix_domain::render_flake` and write the result to `./flake.nix`.
 3. `maybe_update_lock` — call `NixRunner::flake_update` when `--update` was requested.
 
@@ -64,7 +66,7 @@ Four sub-modules divide the domain:
 - `definition/` — the configuration AST: `DevShellDefinition`, `DevShell`, `Package`, `PackageEntry`, `PinnedPackageEntry`, `Env`, `EnvVar`, `TaskDef`, `Settings`. Also `validate_config`, which produces `Diagnostic` values for non-fatal findings and returns `ValidationError` for hard failures.
 - `values/` — value objects that validate their invariants at construction: `PackageName`, `PackageVersion`, `TaskName`, `EnvVarName`, `RegistryUrl`. These make illegal values unrepresentable in downstream code and double as the shell-injection defence for anything that flows into a generated Nix expression or a spawned subprocess.
 - `service/` — pure domain services: `flake::render_flake` (turns a `DevShellDefinition` into a `flake.nix` string), `lint::*` (classifies raw `nix eval` errors and formats validation reports), `task::interpolate_command` (substitutes CLI arguments into task templates).
-- `interface/` — the ports. Traits live under `interface::persistence` (`ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`), `interface::gateway` (`NixRunner`, `NixEvaluator`, `VersionResolver`), and `interface::output` (`OutputPort`).
+- `interface/` — the ports. Traits live under `interface::persistence` (`ConfigRepository`, `FlakeWriter`, `FlakeReader`, `EnvFilePresenceChecker`, `ProjectScaffolder`) and `interface::gateway` (`NixRunner`, `NixEvaluator`, `VersionResolver`). The presentation port (`ReporterPort`) is not domain vocabulary, so it lives in `lnix-app`.
 
 ### lnix-infra
 
@@ -75,7 +77,6 @@ Every trait declared in `lnix_domain::interface` gets an implementation here:
 
 - `persistence/` — filesystem adapters (`ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`). All paths are anchored to `WorkspacePaths` so no adapter reads the current working directory implicitly.
 - `gateway/` — subprocess adapters that call `nix` and `nix-versions`. Two private helpers (`run_inherit` for interactive commands, `run_capture` for evaluated output) keep stdio wiring and error mapping in one place.
-- `output/` — the terminal sink that implements `OutputPort`.
 
 `lnix-infra` also bundles the templates used by `lnix init`.
 
@@ -128,7 +129,7 @@ There is no separate intermediate representation. `render_flake` walks `DevShell
 Two outcomes are possible:
 
 - **Hard failure** — `ValidationError::EmptyTaskCommands(name)` when a task declares an empty `commands` list. The pipeline stops before rendering `flake.nix`.
-- **Non-fatal diagnostic** — `Diagnostic::NoPackages` when `stable`, `unstable`, and `pinned` are all empty. `validate_config` returns it as data; `pipeline::load_config` forwards it to `OutputPort::warn` and execution continues.
+- **Non-fatal diagnostic** — `Diagnostic::NoPackages` when `stable`, `unstable`, and `pinned` are all empty. `validate_config` returns it as data; `pipeline::load_config` forwards it as a `UseCaseEvent::ConfigDiagnostic` to `ReporterPort` and execution continues.
 
 Additional invariants are enforced elsewhere:
 
@@ -150,7 +151,7 @@ User runs: lnix develop [--update]
   3. lnix_app::pipeline::load_config
        ├── ConfigRepository::read_settings         (optional lazynix-settings.yaml)
        ├── ConfigRepository::read_config           (lazynix.yaml → DevShellDefinition)
-       ├── lnix_domain::validate_config            (diagnostics → OutputPort::warn)
+       ├── lnix_domain::validate_config            (diagnostics → ConfigDiagnostic event)
        ├── validate_env_files                      (dotenv files must exist)
        └── resolve_pinned_packages                 (FlakeReader::read_pinned_inputs
                                                     hits, else VersionResolver::resolve;

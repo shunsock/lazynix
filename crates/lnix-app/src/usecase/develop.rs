@@ -2,6 +2,7 @@
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 use crate::pipeline;
 
 /// Renders `flake.nix`, optionally updates the lock, and enters
@@ -11,8 +12,7 @@ pub fn develop(d: &Deps, update_lock: bool) -> Result<i32, ApplicationError> {
     pipeline::write_flake(d, &loaded)?;
     pipeline::maybe_update_lock(d, update_lock)?;
 
-    d.out.info("");
-    d.out.info("Entering nix develop shell...");
+    d.reporter.report(&UseCaseEvent::EnteringDevelopShell);
     d.nix.develop()?;
     Ok(0)
 }
@@ -35,14 +35,16 @@ mod tests {
         assert!(m.flake_writer.written().unwrap().contains("bash"));
         assert_eq!(m.nix.develop_calls(), 1);
         assert!(
-            m.out
-                .infos()
-                .contains(&"✓ flake.nix generated successfully".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::FlakeGenerated))
         );
         assert!(
-            m.out
-                .infos()
-                .contains(&"Skipping flake.lock update (use --update to update)".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::LockUpdateSkipped))
         );
     }
 
@@ -57,9 +59,10 @@ mod tests {
         assert_eq!(code, 0);
         assert_eq!(m.nix.flake_update_calls(), 1);
         assert!(
-            m.out
-                .infos()
-                .contains(&"flake.lock updated successfully".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::LockUpdated))
         );
     }
 
@@ -110,15 +113,14 @@ mod tests {
     }
 
     #[test]
-    fn warns_about_empty_package_list_via_output_port() {
+    fn emits_config_diagnostic_for_empty_package_list() {
         let m = Mocks::with_config(config_from_yaml("devShell:\n  package:\n    stable: []\n"));
 
         develop(&m.deps(), false).unwrap();
 
-        assert!(
-            m.out
-                .warns()
-                .contains(&"No packages specified in lazynix.yaml".to_string())
-        );
+        assert!(m.reporter.events().iter().any(|e| matches!(
+            e,
+            UseCaseEvent::ConfigDiagnostic(msg) if msg.contains("packages specified")
+        )));
     }
 }

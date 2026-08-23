@@ -9,6 +9,7 @@ use lnix_domain::{DevShellDefinition, render_flake};
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 
 /// A validated config together with the optional registry override that
 /// settings supplied, ready to be rendered into a flake.
@@ -25,14 +26,15 @@ pub(crate) fn load_config(deps: &Deps) -> Result<LoadedConfig, ApplicationError>
         .and_then(|s| s.override_stable_package)
         .map(|url| url.as_str().to_string());
 
-    deps.out.info("Reading configuration...");
+    deps.reporter.report(&UseCaseEvent::ReadingConfig);
     let mut config = deps.repo.read_config()?;
 
-    deps.out.info("Validating configuration...");
+    deps.reporter.report(&UseCaseEvent::ValidatingConfig);
     for diagnostic in
         lnix_domain::validate_config(&config).map_err(lnix_domain::ConfigError::from)?
     {
-        deps.out.warn(&diagnostic.to_string());
+        deps.reporter
+            .report(&UseCaseEvent::ConfigDiagnostic(diagnostic.to_string()));
     }
     validate_env_files(deps, &config)?;
 
@@ -62,8 +64,8 @@ fn validate_env_files(deps: &Deps, config: &DevShellDefinition) -> Result<(), Ap
 /// falling back to the version resolver for cache misses. Never
 /// rewrites `lazynix.yaml`; the generated `flake.nix` and `flake.lock`
 /// are the durable record.
-// NOTE: if the resolver errors mid-loop the caller's config is left
-// in a partially-mutated state; safe today because load_config aborts.
+// NOTE: a mid-loop resolver error leaves the caller's config partly
+// mutated; safe today because load_config aborts on that error.
 fn resolve_pinned_packages(
     deps: &Deps,
     config: &mut DevShellDefinition,
@@ -71,10 +73,11 @@ fn resolve_pinned_packages(
     let mut cached = deps.flake_reader.read_pinned_inputs()?;
     for entry in &mut config.dev_shell.package.pinned {
         if entry.version.as_str().contains('-') {
-            deps.out.warn(&format!(
-                "Version '{}' for '{}' contains '-' which conflicts with the pinned-input separator; skipping flake.nix cache and re-resolving via nix-versions each run.",
-                entry.version, entry.name
-            ));
+            deps.reporter
+                .report(&UseCaseEvent::PinnedVersionSeparatorConflict {
+                    name: entry.name.clone(),
+                    version: entry.version.clone(),
+                });
         }
         let key = (entry.name.clone(), entry.version.clone());
         if let Some(resolution) = cached.remove(&key) {
@@ -82,10 +85,10 @@ fn resolve_pinned_packages(
             entry.resolved_attr = Some(resolution.attr);
             continue;
         }
-        deps.out.info(&format!(
-            "Resolving version for {} @ {}...",
-            entry.name, entry.version
-        ));
+        deps.reporter.report(&UseCaseEvent::ResolvingPinned {
+            name: entry.name.clone(),
+            version: entry.version.clone(),
+        });
         let resolved = deps.resolver.resolve(&entry.name, &entry.version)?;
         entry.resolved_commit = Some(resolved.commit);
         entry.resolved_attr = Some(resolved.attr);
@@ -95,22 +98,21 @@ fn resolve_pinned_packages(
 
 /// Renders the loaded config and persists it as `flake.nix`.
 pub(crate) fn write_flake(deps: &Deps, loaded: &LoadedConfig) -> Result<(), ApplicationError> {
-    deps.out.info("Generating flake.nix...");
+    deps.reporter.report(&UseCaseEvent::GeneratingFlake);
     let contents = render_flake(&loaded.config, loaded.override_url.as_deref());
     deps.flake_writer.write_flake(&contents)?;
-    deps.out.info("✓ flake.nix generated successfully");
+    deps.reporter.report(&UseCaseEvent::FlakeGenerated);
     Ok(())
 }
 
 /// Updates `flake.lock` when requested, or reports that it was skipped.
 pub(crate) fn maybe_update_lock(deps: &Deps, update_lock: bool) -> Result<(), ApplicationError> {
     if update_lock {
-        deps.out.info("Updating flake.lock...");
+        deps.reporter.report(&UseCaseEvent::UpdatingLock);
         deps.nix.flake_update()?;
-        deps.out.info("flake.lock updated successfully");
+        deps.reporter.report(&UseCaseEvent::LockUpdated);
     } else {
-        deps.out
-            .info("Skipping flake.lock update (use --update to update)");
+        deps.reporter.report(&UseCaseEvent::LockUpdateSkipped);
     }
     Ok(())
 }
@@ -230,8 +232,11 @@ mod tests {
         resolve_pinned_packages(&m.deps(), &mut config).unwrap();
 
         assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
-        let warns = m.out.warns().join("\n");
-        assert!(warns.contains("1.0.0-rc1"));
+        assert!(m.reporter.events().iter().any(|e| matches!(
+            e,
+            UseCaseEvent::PinnedVersionSeparatorConflict { version, .. }
+                if version.as_str() == "1.0.0-rc1"
+        )));
         let pinned = &config.dev_shell.package.pinned[0];
         assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
     }

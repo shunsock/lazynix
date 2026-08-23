@@ -8,13 +8,17 @@ This crate sits between the domain and everything else.
 
 It depends only on `lnix-domain`.
 
-It defines two things today.
+It defines four things today.
 
 First, `Deps`: the borrowed bundle of ports every use-case receives.
 
 Second, `ApplicationError`: the top of the two-tier error hierarchy.
 
-Use-cases land per subcommand in later stages of the migration.
+Third, `UseCaseEvent`: the semantic event vocabulary use-cases emit while they work — a config was read, a lock was updated, a task started — instead of assembling user-facing text themselves.
+
+Fourth, `ReporterPort`: the port a use-case emits events through. Presentation adapters (terminal, JSON, TUI, i18n) map events to output.
+
+Use-cases live under `usecase`, one per subcommand.
 
 ## Background
 
@@ -46,18 +50,18 @@ So `?` inside a use-case is the railway: any failure short-circuits with its cat
 
 ## Example
 
-A use-case body stays free of I/O details.
+A use-case body stays free of I/O details and never assembles user-facing text. Progress and results are emitted as `UseCaseEvent`s; the composition root's presenter decides how to render them.
 
 ```rust,ignore
-use lnix_app::{ApplicationError, Deps};
+use lnix_app::{ApplicationError, Deps, UseCaseEvent};
 use lnix_domain::render_flake;
 
 fn develop(d: &Deps) -> Result<i32, ApplicationError> {
-    let config = d.repo.read_config()?;   // ConfigError -> ApplicationError
-    let flake = render_flake(&config, None); // pure domain service
-    d.writer.write_flake(&flake)?;        // FlakeError -> ApplicationError
-    d.out.info("entering nix develop");
-    d.nix.develop()?;                     // NixError -> ApplicationError
+    let config = d.repo.read_config()?;                       // ConfigError -> ApplicationError
+    let flake = render_flake(&config, None);                  // pure domain service
+    d.writer.write_flake(&flake)?;                            // FlakeError -> ApplicationError
+    d.reporter.report(&UseCaseEvent::EnteringDevelopShell);   // semantic event, no strings here
+    d.nix.develop()?;                                         // NixError -> ApplicationError
     Ok(0)
 }
 ```

@@ -11,7 +11,7 @@ crates/
   lnix/          # バイナリ: CLI エントリーポイント (clap 解析 + コンポジションルート)
   lnix-app/      # ライブラリ: ユースケース (init/update/generate/develop/run/test/task/lint/search)
   lnix-domain/   # ライブラリ: 純粋ドメイン — 定義、サービス、ポート、値オブジェクト
-  lnix-infra/    # ライブラリ: アダプタ — ファイルシステム、nix サブプロセス、nix-versions、stdout
+  lnix-infra/    # ライブラリ: アダプタ — ファイルシステム、nix サブプロセス、nix-versions
 ```
 
 設計はヘキサゴナル (「ポートとアダプタ」) レイアウトに従います。`lnix-domain` は最内層で、I/O を一切行いません。`lnix-app` は `lnix-domain` に定義されたトレイト (ポート) のみを介してユースケースをオーケストレーションします。`lnix-infra` は具象アダプタを提供し、`lnix` バイナリはすべてを配線するコンポジションルートです。
@@ -44,11 +44,13 @@ crates/
 **クレート:** `lnix-app` (ライブラリ)
 **責務:** ドメインのポートに対してユースケースをオーケストレーションする。
 
-各サブコマンドは `usecase/` 配下の `fn(&Deps, ...) -> Result<i32, ApplicationError>` 形状の関数に対応します。`Deps` は、ユースケースが触れうるすべてのポートを借用でまとめたバンドルで、`ConfigRepository`、`FlakeWriter`、`EnvFilePresenceChecker`、`ProjectScaffolder`、`NixRunner`、`NixEvaluator`、`VersionResolver`、`OutputPort` を含みます。
+各サブコマンドは `usecase/` 配下の `fn(&Deps, ...) -> Result<i32, ApplicationError>` 形状の関数に対応します。`Deps` は、ユースケースが触れうるすべてのポートを借用でまとめたバンドルで、`ConfigRepository`、`FlakeWriter`、`FlakeReader`、`EnvFilePresenceChecker`、`ProjectScaffolder`、`NixRunner`、`NixEvaluator`、`VersionResolver`、`ReporterPort` を含みます。
+
+ユースケースは UI 文言を組み立てません。進行状況は `lnix-app` の `UseCaseEvent` (意味を持つイベント) として `ReporterPort` に送出し、文言化とレイアウトは `lnix` バイナリ側の `TerminalPresenter` が担います。この分離により、JSON 出力・TUI・`--quiet`・i18n はプレゼンタの差し替えだけで追加できます。
 
 `flake.nix` を生成するユースケース (`develop` / `test` / `run`) は、`pipeline.rs` に定義された共通の前段を共有します:
 
-1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `OutputPort::warn` に流す)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決。解決結果は生成される `flake.nix` に埋め込まれ、`lazynix.yaml` は書き換えません。再実行時は `FlakeReader` ポート経由で `flake.nix` から `(commit, attr)` を復元し、キャッシュヒット時は resolver 呼び出しをスキップします。
+1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `UseCaseEvent::ConfigDiagnostic` として送出)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決。解決結果は生成される `flake.nix` に埋め込まれ、`lazynix.yaml` は書き換えません。再実行時は `FlakeReader` ポート経由で `flake.nix` から `(commit, attr)` を復元し、キャッシュヒット時は resolver 呼び出しをスキップします。
 2. `write_flake` — `lnix_domain::render_flake` を呼び出し、結果を `./flake.nix` に書き込む。
 3. `maybe_update_lock` — `--update` が指定されているときのみ `NixRunner::flake_update` を呼び出す。
 
@@ -64,7 +66,7 @@ crates/
 - `definition/` — 設定 AST: `DevShellDefinition`、`DevShell`、`Package`、`PackageEntry`、`PinnedPackageEntry`、`Env`、`EnvVar`、`TaskDef`、`Settings`。加えて `validate_config` は、非致命の指摘を `Diagnostic` 値として返し、致命的な違反は `ValidationError` として返します。
 - `values/` — 構築時に不変条件を検証する値オブジェクト: `PackageName`、`PackageVersion`、`TaskName`、`EnvVarName`、`RegistryUrl`。下流コードで不正な値を表現不可能にすると同時に、生成される Nix 式や起動されるサブプロセスへ流れる値に対するシェルインジェクション対策も兼ねます。
 - `service/` — 純粋なドメインサービス: `flake::render_flake` (`DevShellDefinition` を `flake.nix` 文字列に変換)、`lint::*` (生の `nix eval` エラーを分類して検証レポートを整形)、`task::interpolate_command` (CLI 引数をタスクテンプレートに展開)。
-- `interface/` — ポート。トレイトは `interface::persistence` (`ConfigRepository`、`FlakeWriter`、`EnvFilePresenceChecker`、`ProjectScaffolder`)、`interface::gateway` (`NixRunner`、`NixEvaluator`、`VersionResolver`)、`interface::output` (`OutputPort`) に分類されます。
+- `interface/` — ポート。トレイトは `interface::persistence` (`ConfigRepository`、`FlakeWriter`、`FlakeReader`、`EnvFilePresenceChecker`、`ProjectScaffolder`) と `interface::gateway` (`NixRunner`、`NixEvaluator`、`VersionResolver`) に分類されます。プレゼンテーションのポート (`ReporterPort`) はドメインの語彙ではないため、`lnix-app` 側に置かれます。
 
 ### lnix-infra
 
@@ -73,9 +75,8 @@ crates/
 
 `lnix_domain::interface` で宣言されたすべてのトレイトが、ここで実装されます:
 
-- `persistence/` — ファイルシステムアダプタ (`ConfigRepository`、`FlakeWriter`、`EnvFilePresenceChecker`、`ProjectScaffolder`)。すべてのパスは `WorkspacePaths` を起点とし、どのアダプタも暗黙にカレントディレクトリを読みません。
+- `persistence/` — ファイルシステムアダプタ (`ConfigRepository`、`FlakeWriter`、`FlakeReader`、`EnvFilePresenceChecker`、`ProjectScaffolder`)。すべてのパスは `WorkspacePaths` を起点とし、どのアダプタも暗黙にカレントディレクトリを読みません。
 - `gateway/` — `nix` および `nix-versions` を呼び出すサブプロセスアダプタ。2 つの内部ヘルパー (対話コマンド用の `run_inherit` と、出力を取り込む `run_capture`) に stdio 配線とエラーマッピングを集約しています。
-- `output/` — `OutputPort` を実装するターミナルシンク。
 
 `lnix-infra` は `lnix init` で使用されるテンプレートも同梱しています。
 
@@ -123,12 +124,12 @@ DevShellDefinition
 
 ## 検証ルール
 
-`lnix_domain::validate_config` は、値オブジェクトでは表現できないフィールド間の制約を検査します。フィールド単位の不変条件 (パッケージ名の構文、バージョンの非空、タスク名・環境変数名の構文) は、serde が値オブジェクトを構築する時点で既に強制されているため、`validate_config` は残りの関係だけを検査します。
+`lnix_domain::validate_config` は、値オブジェクトでは表現できないフィールド間の制約を検査します。フィールド単位の不変条件 (パッケージ名の構文、バージョン文字列が 1 文字以上であること、タスク名・環境変数名の構文) は、serde が値オブジェクトを構築する時点で既に強制されているため、`validate_config` は残りの関係だけを検査します。
 
 結果は 2 通りです:
 
-- **致命的エラー** — `ValidationError::EmptyTaskCommands(name)`。タスクの `commands` が空のとき返り、パイプラインは `flake.nix` をレンダリングする前に停止します。
-- **非致命の診断** — `Diagnostic::NoPackages`。`stable` / `unstable` / `pinned` がすべて空のときに返ります。`validate_config` はデータとして返し、`pipeline::load_config` が `OutputPort::warn` に転送して実行は継続します。
+- **致命的エラー** — `ValidationError::EmptyTaskCommands(name)`。タスクの `commands` に要素が無いとき返り、パイプラインは `flake.nix` をレンダリングする前に停止します。
+- **非致命の診断** — `Diagnostic::NoPackages`。`stable` / `unstable` / `pinned` のいずれにも要素が無いときに返ります。`validate_config` はデータとして返し、`pipeline::load_config` が `UseCaseEvent::ConfigDiagnostic` として `ReporterPort` へ送出して実行は継続します。
 
 追加の不変条件は他の箇所で強制されます:
 
@@ -150,7 +151,7 @@ DevShellDefinition
   3. lnix_app::pipeline::load_config
        ├── ConfigRepository::read_settings         (任意の lazynix-settings.yaml)
        ├── ConfigRepository::read_config           (lazynix.yaml → DevShellDefinition)
-       ├── lnix_domain::validate_config            (診断 → OutputPort::warn)
+       ├── lnix_domain::validate_config            (診断 → ConfigDiagnostic イベント)
        ├── validate_env_files                      (dotenv ファイルの存在確認)
        └── resolve_pinned_packages                 (FlakeReader::read_pinned_inputs
                                                     がヒットすれば再利用、そうでなければ

@@ -6,8 +6,8 @@
 //! dispatch is negligible for a CLI, and swapping mocks in tests is a
 //! plain struct literal.
 
+use crate::reporter::ReporterPort;
 use lnix_domain::interface::gateway::{NixEvaluator, NixRunner, VersionResolver};
-use lnix_domain::interface::output::OutputPort;
 use lnix_domain::interface::persistence::{
     ConfigRepository, EnvFilePresenceChecker, FlakeReader, FlakeWriter, ProjectScaffolder,
 };
@@ -33,8 +33,8 @@ pub struct Deps<'a> {
     pub nix_eval: &'a dyn NixEvaluator,
     /// Resolves/searches package versions via nix-versions (capturing).
     pub resolver: &'a dyn VersionResolver,
-    /// Sink for user-facing progress messages and warnings.
-    pub out: &'a dyn OutputPort,
+    /// Emits semantic events to the presentation adapter.
+    pub reporter: &'a dyn ReporterPort,
 }
 
 #[cfg(test)]
@@ -61,7 +61,6 @@ mod tests {
             .resolver
             .resolve(&"go".parse().unwrap(), &"1.21.13".parse().unwrap())
             .unwrap();
-        deps.out.info("progress");
 
         assert_eq!(config.dev_shell.package.stable[0].name.as_str(), "bash");
         assert!(write_result.is_ok());

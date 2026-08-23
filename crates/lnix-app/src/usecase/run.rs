@@ -2,6 +2,7 @@
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 use crate::pipeline;
 
 /// Renders `flake.nix` (unless the caller opted out) and runs
@@ -20,15 +21,14 @@ pub fn run(
         let loaded = pipeline::load_config(d)?;
         pipeline::write_flake(d, &loaded)?;
     } else {
-        d.out
-            .info("Using existing flake.nix (--no-regen specified)");
+        d.reporter.report(&UseCaseEvent::UsingExistingFlake);
     }
 
     pipeline::maybe_update_lock(d, update_lock)?;
 
-    d.out.info("");
-    d.out
-        .info(&format!("Running command: {}", cmd_args.join(" ")));
+    d.reporter.report(&UseCaseEvent::RunningCommand {
+        argv: cmd_args.clone(),
+    });
     Ok(d.nix.develop_command(&cmd_args)?)
 }
 
@@ -62,9 +62,10 @@ mod tests {
         assert_eq!(code, 0);
         assert!(m.flake_writer.written().is_none());
         assert!(
-            m.out
-                .infos()
-                .contains(&"Using existing flake.nix (--no-regen specified)".to_string())
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::UsingExistingFlake))
         );
     }
 

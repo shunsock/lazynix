@@ -2,6 +2,7 @@
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
+use crate::event::UseCaseEvent;
 use crate::pipeline;
 
 /// Renders `flake.nix` and runs the test commands in `nix develop`.
@@ -17,7 +18,7 @@ pub fn test(d: &Deps, update_lock: bool) -> Result<i32, ApplicationError> {
     pipeline::write_flake(d, &loaded)?;
     pipeline::maybe_update_lock(d, update_lock)?;
 
-    d.out.info("");
+    d.reporter.report(&UseCaseEvent::EnteringTestRun);
     Ok(d.nix.test()?)
 }
 
@@ -37,6 +38,12 @@ mod tests {
         assert_eq!(code, 0);
         assert!(m.flake_writer.written().is_some());
         assert_eq!(m.nix.test_calls(), 1);
+        assert!(
+            m.reporter
+                .events()
+                .iter()
+                .any(|e| matches!(e, UseCaseEvent::EnteringTestRun))
+        );
     }
 
     #[test]
