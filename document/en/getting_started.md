@@ -137,6 +137,16 @@ This refreshes `flake.lock` --- a lock file that pins the exact version of every
 
 > **Important:** `lnix develop` regenerates `flake.nix` from `lazynix.yaml` every time it runs. If you have manually edited `flake.nix`, those changes will be overwritten. See [Philosophy](./philosophy.md) for more on this design decision and how to migrate to pure Nix when you are ready.
 
+## Generating flake.nix Only
+
+Sometimes you want to regenerate `flake.nix` without entering a shell, running a command, or touching `flake.lock` — for example, when validating that `lazynix.yaml` still produces a valid flake in CI, or when reviewing the effect of an edit before committing it.
+
+```bash
+lnix generate
+```
+
+This reads your `lazynix.yaml`, writes the resulting `flake.nix`, and exits. When your configuration has no `pinned` packages, `generate` runs entirely offline — it never spawns a Nix subprocess, so it works even without Nix installed.
+
 ## Running Commands
 
 Sometimes you do not need a full interactive shell. You just want to run a single command inside the environment. That is what `lnix run` is for:
@@ -287,6 +297,33 @@ This runs `nix flake update` and exits. It is a lightweight command that does no
 
 Use `lnix develop --update` when you want to update the lock and start working immediately. Use `lnix update` when the lock refresh itself is the whole task.
 
+## Loading Environment Variables
+
+Real projects need environment variables --- API keys, `PYTHONPATH` overrides, feature flags. `devShell.env` lets you load them from `.env` files, define them directly in `lazynix.yaml`, or both:
+
+```yaml
+devShell:
+  package:
+    stable:
+      - name: python312
+
+  env:
+    dotenv:
+      - .env
+      - .env.local
+
+    envvar:
+      - name: PYTHONPATH
+        value: ./src
+      - name: LOG_LEVEL
+        value: info
+```
+
+- **`env.dotenv`** --- a list of `.env` files to load, in order. Later files override earlier ones, so a gitignored `.env.local` can override values committed in `.env`.
+- **`env.envvar`** --- variables defined directly in `lazynix.yaml`, each with a `name` and `value`. Use this for values that are the same for every developer and do not need a `.env` file.
+
+Both sources feed the same environment, so variables from `env.dotenv` and `env.envvar` are available together whenever you run `lnix develop`, `lnix run`, or `lnix test` --- each of these regenerates `flake.nix` from your current `lazynix.yaml` before running. `lnix run --no-regen` skips that regeneration, and `lnix task` never regenerates `flake.nix` at all, so after changing `env` run `lnix generate` (or a regenerating `lnix develop`/`lnix run`) once first, or the command will still see the previous environment.
+
 ## Loading Shell Aliases
 
 Shell aliases like `alias ll='ls -la'` are convenient, but keeping them inline inside `shellHook` mixes concerns. `devShell.shellAlias` lets you point at one or more external alias files, and LazyNix extracts every `alias …` line and evaluates them when the dev shell starts.
@@ -317,11 +354,13 @@ In this guide, you have:
 - Created a LazyNix project with `lnix init`
 - Configured a Python development environment in `lazynix.yaml`
 - Entered the environment with `lnix develop`
+- Regenerated `flake.nix` alone, without a shell or Nix subprocess, with `lnix generate`
 - Run commands with `lnix run` and defined reusable tasks
 - Validated your configuration with `lnix lint`
 - Pinned an individual package to a specific version with `devShell.package.pinned`, letting LazyNix embed the resolved nixpkgs commit into the generated `flake.nix`
 - Discovered available versions with `lnix search`
 - Refreshed `flake.lock` in isolation with `lnix update`
+- Loaded environment variables from `.env` files and inline YAML with `devShell.env`
 - Loaded shell aliases from external files with `devShell.shellAlias`
 
 ## Next Steps

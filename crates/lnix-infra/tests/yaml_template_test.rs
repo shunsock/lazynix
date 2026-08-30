@@ -56,3 +56,28 @@ fn yaml_template_describes_flake_embedding_not_write_back() {
         "template must not surface resolvedAttr as user-facing state"
     );
 }
+
+#[test]
+fn yaml_template_does_not_reference_nonexistent_docs_path() {
+    assert!(
+        !YAML_TEMPLATE.contains("docs/"),
+        "template must not reference the removed docs/ directory; \
+         point users at README.md's \"Configure Your Environment\" section instead"
+    );
+}
+
+#[test]
+fn yaml_template_documents_task_usage() {
+    assert!(
+        YAML_TEMPLATE.contains("# test:"),
+        "template must keep the existing `test:` example"
+    );
+    assert!(
+        YAML_TEMPLATE.contains("# task:"),
+        "template must document a commented-out `task:` example"
+    );
+    assert!(
+        YAML_TEMPLATE.contains("lnix task"),
+        "template must explain that task entries are invoked via `lnix task <name>`"
+    );
+}
