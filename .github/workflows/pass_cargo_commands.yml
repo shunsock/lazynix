@@ -87,7 +87,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16  # v2
 
       - name: Run cargo fmt
         run: cargo fmt --all --check
@@ -135,7 +135,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16  # v2
 
       # Tests spawn `nix eval` in parallel. Initialize the nix tarball
       # cache serially first, otherwise concurrent evaluations race on
