@@ -6,7 +6,7 @@
 # Override Stable Nixpkgs Registry
 # =============================================================================
 #
-# By default, LazyNix uses "github:NixOS/nixpkgs/nixos-25.11" for stable packages.
+# By default, LazyNix uses "github:NixOS/nixpkgs/nixos-26.05" for stable packages.
 # You can override this to use different nixpkgs versions or custom forks.
 #
 # Common use cases:
@@ -20,8 +20,8 @@
 #
 # Examples:
 #
-#   # Use NixOS 25.06 (older stable release)
-#   override-stable-package: "github:NixOS/nixpkgs/nixos-25.06"
+#   # Use NixOS 25.11 (older stable release)
+#   override-stable-package: "github:NixOS/nixpkgs/nixos-25.11"
 #
 #   # Use nixpkgs unstable (bleeding edge)
 #   override-stable-package: "github:NixOS/nixpkgs/nixos-unstable"
@@ -32,10 +32,10 @@
 #   # Use custom fork
 #   override-stable-package: "github:myorg/nixpkgs/custom-branch"
 #
-# If not specified or this file doesn't exist, defaults to: nixos-25.11
+# If not specified or this file doesn't exist, defaults to: nixos-26.05
 #
 # Uncomment and modify the line below to enable override:
-# override-stable-package: "github:NixOS/nixpkgs/nixos-25.06"
+# override-stable-package: "github:NixOS/nixpkgs/nixos-25.11"
 
 # =============================================================================
 # Important Notes

@@ -16,7 +16,7 @@ use build_inputs::render_build_inputs;
 use shell_hook::compose_shell_hook;
 
 /// Default stable nixpkgs revision, used unless overridden by settings.
-const DEFAULT_STABLE_URL: &str = "github:NixOS/nixpkgs/nixos-25.11";
+const DEFAULT_STABLE_URL: &str = "github:NixOS/nixpkgs/nixos-26.05";
 
 fn render_inputs_section(stable_url: &str, resolved: &[&crate::PinnedPackageEntry]) -> String {
     let mut lines = vec![
@@ -112,19 +112,19 @@ mod tests {
 
     #[test]
     fn uses_override_stable_url_when_provided() {
-        let custom_url = "github:NixOS/nixpkgs/nixos-25.06";
+        let custom_url = "github:NixOS/nixpkgs/nixos-25.11";
 
         let flake = render_from_yaml(BASIC, Some(custom_url));
 
         assert!(flake.contains(&format!("nixpkgs.url = \"{}\";", custom_url)));
-        assert!(!flake.contains("nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";"));
+        assert!(!flake.contains("nixpkgs.url = \"github:NixOS/nixpkgs/nixos-26.05\";"));
     }
 
     #[test]
     fn falls_back_to_default_stable_url() {
         let flake = render_from_yaml(BASIC, None);
 
-        assert!(flake.contains("nixpkgs.url = \"github:NixOS/nixpkgs/nixos-25.11\";"));
+        assert!(flake.contains("nixpkgs.url = \"github:NixOS/nixpkgs/nixos-26.05\";"));
     }
 
     #[test]

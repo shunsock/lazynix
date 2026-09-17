@@ -19,7 +19,7 @@ mod tests {
     fn deserializes_override_url() {
         // Arrange
         let yaml = r#"
-override-stable-package: "github:NixOS/nixpkgs/nixos-25.06"
+override-stable-package: "github:NixOS/nixpkgs/nixos-25.11"
 "#;
 
         // Act
@@ -28,7 +28,7 @@ override-stable-package: "github:NixOS/nixpkgs/nixos-25.06"
         // Assert
         assert_eq!(
             settings.override_stable_package,
-            Some("github:NixOS/nixpkgs/nixos-25.06".parse().unwrap())
+            Some("github:NixOS/nixpkgs/nixos-25.11".parse().unwrap())
         );
     }
 

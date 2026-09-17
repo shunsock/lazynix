@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::ParseError;
 
 /// A flake registry URL overriding the stable nixpkgs input,
-/// such as `github:NixOS/nixpkgs/nixos-25.06`.
+/// such as `github:NixOS/nixpkgs/nixos-25.11`.
 ///
 /// Invariant: `github:OWNER/REPO/BRANCH` where each part is non-empty
 /// and contains only alphanumerics, `-`, `_`, and `.`.
@@ -76,7 +76,7 @@ mod tests {
     fn accepts_github_owner_repo_branch_form() {
         // Arrange
         let valid_urls = [
-            "github:NixOS/nixpkgs/nixos-25.06",
+            "github:NixOS/nixpkgs/nixos-25.11",
             "github:NixOS/nixpkgs/nixos-unstable",
             "github:myuser/nixpkgs/custom-branch",
             "github:my_user/nix_pkgs/branch.name",

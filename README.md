@@ -239,7 +239,7 @@ LazyNix supports an optional `lazynix-settings.yaml` file for system-level custo
 
 ### 🎛️ Override Stable Nixpkgs
 
-By default, LazyNix uses `nixos-25.11` for stable packages. You can override this in `lazynix-settings.yaml`:
+By default, LazyNix uses `nixos-26.05` for stable packages. You can override this in `lazynix-settings.yaml`:
 
 ```yaml
 # lazynix-settings.yaml
