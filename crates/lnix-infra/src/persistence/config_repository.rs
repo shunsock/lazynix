@@ -101,7 +101,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(
             dir.path().join("lazynix-settings.yaml"),
-            "override-stable-package: \"github:NixOS/nixpkgs/nixos-25.06\"\n",
+            "override-stable-package: \"github:NixOS/nixpkgs/nixos-26.05\"\n",
         )
         .unwrap();
 

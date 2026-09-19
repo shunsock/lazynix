@@ -158,7 +158,7 @@ mod tests {
 
     const SINGLE_GO_FLAKE: &str = r#"{
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
   };
   outputs = { self, nixpkgs, nixpkgs--go--1-21-13, ... }:
@@ -177,7 +177,7 @@ mod tests {
 
     const TWO_PINNED_FLAKE: &str = r#"{
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
     nixpkgs--rust--1-70-0.url = "github:NixOS/nixpkgs/abcd123";
   };
@@ -245,7 +245,7 @@ mod tests {
             &dir,
             r#"{
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
