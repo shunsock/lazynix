@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::ParseError;
 
 /// A flake registry URL overriding the stable nixpkgs input,
-/// such as `github:NixOS/nixpkgs/nixos-25.11`.
+/// such as `github:NixOS/nixpkgs/nixos-26.05`.
 ///
 /// Invariant: `github:OWNER/REPO/BRANCH` where each part is non-empty
 /// and contains only alphanumerics, `-`, `_`, and `.`.
@@ -25,7 +25,6 @@ fn is_valid_registry_url(url: &str) -> bool {
         return false;
     };
     let parts: Vec<&str> = rest.split('/').collect();
-    // Exactly OWNER/REPO/BRANCH
     if parts.len() != 3 {
         return false;
     }
@@ -74,15 +73,13 @@ mod tests {
 
     #[test]
     fn accepts_github_owner_repo_branch_form() {
-        // Arrange
         let valid_urls = [
-            "github:NixOS/nixpkgs/nixos-25.11",
+            "github:NixOS/nixpkgs/nixos-26.05",
             "github:NixOS/nixpkgs/nixos-unstable",
             "github:myuser/nixpkgs/custom-branch",
             "github:my_user/nix_pkgs/branch.name",
         ];
 
-        // Act & Assert
         for url in valid_urls {
             assert!(url.parse::<RegistryUrl>().is_ok(), "should accept {url}");
         }
@@ -90,7 +87,6 @@ mod tests {
 
     #[test]
     fn rejects_malformed_urls() {
-        // Arrange
         let invalid_urls = [
             "",
             "https://github.com/NixOS/nixpkgs",
@@ -104,7 +100,6 @@ mod tests {
             "github:Nix OS/nixpkgs/branch",
         ];
 
-        // Act & Assert
         for url in invalid_urls {
             assert!(url.parse::<RegistryUrl>().is_err(), "should reject {url:?}");
         }

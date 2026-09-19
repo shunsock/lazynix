@@ -35,7 +35,7 @@
 # If not specified or this file doesn't exist, defaults to: nixos-26.05
 #
 # Uncomment and modify the line below to enable override:
-# override-stable-package: "github:NixOS/nixpkgs/nixos-25.11"
+# override-stable-package: "github:NixOS/nixpkgs/nixos-26.05"
 
 # =============================================================================
 # Important Notes

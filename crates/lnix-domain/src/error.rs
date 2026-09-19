@@ -33,7 +33,7 @@ pub enum ParseError {
     InvalidEnvVarName(String),
 
     #[error(
-        "Invalid registry URL: '{0}'. Expected format: 'github:OWNER/REPO/BRANCH' (e.g., 'github:NixOS/nixpkgs/nixos-25.11')"
+        "Invalid registry URL: '{0}'. Expected format: 'github:OWNER/REPO/BRANCH' (e.g., 'github:NixOS/nixpkgs/nixos-26.05')"
     )]
     InvalidRegistryUrl(String),
 }
