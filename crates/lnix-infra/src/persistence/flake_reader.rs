@@ -94,7 +94,7 @@ fn parse_attr_line(
     let key = match_known_key(name_and_version, commits)?;
     let attr: String = attr_tail
         .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
     if attr.is_empty() {
         return None;
@@ -175,6 +175,25 @@ mod tests {
 }
 "#;
 
+    const HYPHENATED_ATTR_FLAKE: &str = r#"{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs--go-task--3-48-0.url = "github:NixOS/nixpkgs/3d46470";
+  };
+  outputs = { self, nixpkgs, nixpkgs--go-task--3-48-0, ... }:
+    let
+      pinnedPkgs-go-task-3-48-0 = import nixpkgs--go-task--3-48-0 { };
+    in
+    {
+      devShells.default = stablePackages.mkShell {
+        buildInputs = [
+          pinnedPkgs-go-task-3-48-0.go-task
+        ];
+      };
+    };
+}
+"#;
+
     const TWO_PINNED_FLAKE: &str = r#"{
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
@@ -206,6 +225,18 @@ mod tests {
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution("5ed6275", "go_1_21"));
+        assert_eq!(inputs, expected);
+    }
+
+    #[test]
+    fn reads_attribute_containing_a_hyphen() {
+        let dir = TempDir::new().unwrap();
+        write_flake(&dir, HYPHENATED_ATTR_FLAKE);
+
+        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+
+        let mut expected = HashMap::new();
+        expected.insert(key("go-task", "3.48.0"), resolution("3d46470", "go-task"));
         assert_eq!(inputs, expected);
     }
 
