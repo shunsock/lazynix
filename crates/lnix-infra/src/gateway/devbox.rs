@@ -5,12 +5,9 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use lnix_domain::{NixError, PackageName, PackageVersion};
+use lnix_domain::{CommitSha, NixError, PackageName, PackageVersion};
 
 use crate::process::{Captured, run_capture};
-
-/// Length of a full git commit SHA in lowercase hex digits.
-const FULL_SHA_HEX_LEN: usize = 40;
 
 /// Builds a `NixError::VersionResolution` for `spec` with `message`.
 ///
@@ -62,17 +59,10 @@ struct ResolveResponse {
     commit_hash: String,
 }
 
-/// Returns whether `commit` is a 40-digit lowercase hex string (a
-/// full git commit SHA).
-fn is_full_sha(commit: &str) -> bool {
-    commit.len() == FULL_SHA_HEX_LEN
-        && commit
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-}
-
-/// Extracts `commit_hash` from a Devbox v1 resolve response body.
-fn parse_resolve_response(spec: &str, body: &str) -> Result<String, NixError> {
+/// Extracts and validates `commit_hash` from a Devbox v1 resolve
+/// response body, parsing it as a [`CommitSha`] so a malformed or
+/// abbreviated hash is rejected in one place.
+fn parse_resolve_response(spec: &str, body: &str) -> Result<CommitSha, NixError> {
     let response: ResolveResponse = serde_json::from_str(body).map_err(|e| {
         version_resolution_error(
             spec,
@@ -80,25 +70,23 @@ fn parse_resolve_response(spec: &str, body: &str) -> Result<String, NixError> {
         )
     })?;
 
-    if !is_full_sha(&response.commit_hash) {
-        return Err(version_resolution_error(
+    response.commit_hash.parse::<CommitSha>().map_err(|_| {
+        version_resolution_error(
             spec,
             format!(
-                "devbox resolve returned a non-{}-digit-hex commit_hash: {}",
-                FULL_SHA_HEX_LEN, response.commit_hash
+                "devbox resolve returned a non-full-sha commit_hash: {}",
+                response.commit_hash
             ),
-        ));
-    }
-
-    Ok(response.commit_hash)
+        )
+    })
 }
 
 /// Rejects a `full` SHA that does not extend `short` as a prefix.
 ///
 /// NOTE: nix-versions and Devbox query distinct registries. Without
 /// this check they could silently agree on different commits.
-fn ensure_prefix_match(spec: &str, short: &str, full: &str) -> Result<(), NixError> {
-    if !short.is_empty() && full.starts_with(short) {
+fn ensure_prefix_match(spec: &str, short: &str, full: &CommitSha) -> Result<(), NixError> {
+    if !short.is_empty() && full.as_str().starts_with(short) {
         return Ok(());
     }
     Err(version_resolution_error(
@@ -111,9 +99,9 @@ fn ensure_prefix_match(spec: &str, short: &str, full: &str) -> Result<(), NixErr
 }
 
 /// Runs `command` to resolve `spec`'s `short_commit` to a full SHA.
-fn expand_with(command: Command, spec: &str, short_commit: &str) -> Result<String, NixError> {
-    if is_full_sha(short_commit) {
-        return Ok(short_commit.to_string());
+fn expand_with(command: Command, spec: &str, short_commit: &str) -> Result<CommitSha, NixError> {
+    if let Ok(full) = short_commit.parse::<CommitSha>() {
+        return Ok(full);
     }
 
     let captured = run_capture(command)?;
@@ -131,7 +119,7 @@ pub(crate) fn expand_to_full_sha(
     name: &PackageName,
     version: &PackageVersion,
     short_commit: &str,
-) -> Result<String, NixError> {
+) -> Result<CommitSha, NixError> {
     expand_with(curl_resolve_command(name, version), spec, short_commit)
 }
 
@@ -173,7 +161,7 @@ mod tests {
 
         let commit = parse_resolve_response("go@1.21.13", body).unwrap();
 
-        assert_eq!(commit, "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e");
+        assert_eq!(commit.as_str(), "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e");
     }
 
     #[test]
@@ -194,11 +182,9 @@ mod tests {
 
     #[test]
     fn rejects_full_sha_not_prefixed_by_short_sha() {
-        let result = ensure_prefix_match(
-            "go@1.21.13",
-            "5ed6275",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        );
+        let full: CommitSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".parse().unwrap();
+
+        let result = ensure_prefix_match("go@1.21.13", "5ed6275", &full);
 
         assert!(matches!(result, Err(NixError::VersionResolution { .. })));
     }
@@ -207,7 +193,9 @@ mod tests {
     fn rejects_empty_short_commit_even_if_full_sha_would_match() {
         // NOTE: any full string trivially starts_with(""), so a
         // short placeholder suffices to exercise the guard.
-        let result = ensure_prefix_match("go@1.21.13", "", "deadbeef");
+        let full: CommitSha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".parse().unwrap();
+
+        let result = ensure_prefix_match("go@1.21.13", "", &full);
 
         assert!(matches!(result, Err(NixError::VersionResolution { .. })));
     }
@@ -238,7 +226,7 @@ mod tests {
 
         let result = expand_with(command, "go@1.21.13", full);
 
-        assert_eq!(result.unwrap(), full);
+        assert_eq!(result.unwrap().as_str(), full);
     }
 
     #[test]
@@ -251,6 +239,6 @@ mod tests {
 
         let result = expand_with(command, "go@1.21.13", "5ed6275");
 
-        assert_eq!(result.unwrap(), full);
+        assert_eq!(result.unwrap().as_str(), full);
     }
 }

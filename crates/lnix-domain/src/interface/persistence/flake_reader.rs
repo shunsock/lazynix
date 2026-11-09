@@ -3,13 +3,13 @@
 use std::collections::HashMap;
 
 use crate::error::FlakeError;
-use crate::values::{PackageName, PackageVersion};
+use crate::values::{CommitSha, PackageName, PackageVersion};
 
 /// The nixpkgs commit and attribute path a `(name, version)` request
 /// resolved to last time the flake was rendered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PinnedResolution {
-    pub commit: String,
+    pub commit: CommitSha,
     pub attr: String,
 }
 

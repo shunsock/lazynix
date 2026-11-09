@@ -13,7 +13,7 @@ use lnix_domain::interface::persistence::{FlakeReader, PinnedResolution, PinnedR
 use lnix_domain::service::flake::pinned::{
     PINNED_BINDING_PREFIX, PINNED_INPUT_PREFIX, PINNED_INPUT_URL_SUFFIX, PINNED_URL_COMMIT_PREFIX,
 };
-use lnix_domain::{FlakeError, PackageName, PackageVersion};
+use lnix_domain::{CommitSha, FlakeError, PackageName, PackageVersion};
 
 use crate::paths::WorkspacePaths;
 
@@ -53,7 +53,7 @@ fn parse_pinned_inputs(contents: &str) -> PinnedResolutions {
     resolutions
 }
 
-fn collect_commits(contents: &str) -> HashMap<(PackageName, PackageVersion), String> {
+fn collect_commits(contents: &str) -> HashMap<(PackageName, PackageVersion), CommitSha> {
     let mut commits = HashMap::new();
     for line in contents.lines() {
         if let Some((key, commit)) = parse_url_line(line) {
@@ -63,18 +63,23 @@ fn collect_commits(contents: &str) -> HashMap<(PackageName, PackageVersion), Str
     commits
 }
 
-fn parse_url_line(line: &str) -> Option<((PackageName, PackageVersion), String)> {
+/// Parses a pinned-input `.url = "..."` line into its `(name, version)`
+/// key and commit.
+///
+/// A commit that fails to parse as a [`CommitSha`] (e.g. nix-versions'
+/// 7-digit short SHA, left over from before full-SHA expansion was
+/// required) is dropped rather than cached, so the caller re-resolves
+/// it from scratch instead of pinning an input to an ambiguous rev.
+fn parse_url_line(line: &str) -> Option<((PackageName, PackageVersion), CommitSha)> {
     let after_input_prefix = line.trim_start().strip_prefix(PINNED_INPUT_PREFIX)?;
     let (name_and_version, after_dot_url) =
         after_input_prefix.split_once(PINNED_INPUT_URL_SUFFIX)?;
     let (name_str, dashed_version) = split_name_and_version(name_and_version)?;
     let quoted_value = extract_quoted_url(after_dot_url)?;
     let commit = quoted_value.strip_prefix(PINNED_URL_COMMIT_PREFIX)?;
-    if commit.is_empty() {
-        return None;
-    }
+    let commit = commit.parse::<CommitSha>().ok()?;
     let key = build_key(name_str, dashed_version)?;
-    Some((key, commit.to_string()))
+    Some((key, commit))
 }
 
 fn extract_quoted_url(after_dot_url: &str) -> Option<&str> {
@@ -86,7 +91,7 @@ fn extract_quoted_url(after_dot_url: &str) -> Option<&str> {
 
 fn parse_attr_line(
     line: &str,
-    commits: &HashMap<(PackageName, PackageVersion), String>,
+    commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
 ) -> Option<((PackageName, PackageVersion), String)> {
     let trimmed = line.trim();
     let rest = trimmed.strip_prefix(PINNED_BINDING_PREFIX)?;
@@ -104,7 +109,7 @@ fn parse_attr_line(
 
 fn match_known_key(
     name_and_version: &str,
-    commits: &HashMap<(PackageName, PackageVersion), String>,
+    commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
 ) -> Option<(PackageName, PackageVersion)> {
     for (name, version) in commits.keys() {
         let expected = format!("{}-{}", name.as_str(), version.as_str().replace('.', "-"));
@@ -151,7 +156,7 @@ mod tests {
 
     fn resolution(commit: &str, attr: &str) -> PinnedResolution {
         PinnedResolution {
-            commit: commit.into(),
+            commit: commit.parse().unwrap(),
             attr: attr.into(),
         }
     }
@@ -159,7 +164,7 @@ mod tests {
     const SINGLE_GO_FLAKE: &str = r#"{
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
   };
   outputs = { self, nixpkgs, nixpkgs--go--1-21-13, ... }:
     let
@@ -178,7 +183,7 @@ mod tests {
     const HYPHENATED_ATTR_FLAKE: &str = r#"{
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs--go-task--3-48-0.url = "github:NixOS/nixpkgs/3d46470";
+    nixpkgs--go-task--3-48-0.url = "github:NixOS/nixpkgs/3d464701abf1dac19bf39d6ff8c07c8c37e81e0e";
   };
   outputs = { self, nixpkgs, nixpkgs--go-task--3-48-0, ... }:
     let
@@ -197,8 +202,8 @@ mod tests {
     const TWO_PINNED_FLAKE: &str = r#"{
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
-    nixpkgs--rust--1-70-0.url = "github:NixOS/nixpkgs/abcd123";
+    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+    nixpkgs--rust--1-70-0.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
   };
   outputs = { self, nixpkgs, nixpkgs--go--1-21-13, nixpkgs--rust--1-70-0, ... }:
     let
@@ -224,7 +229,10 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(key("go", "1.21.13"), resolution("5ed6275", "go_1_21"));
+        expected.insert(
+            key("go", "1.21.13"),
+            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
+        );
         assert_eq!(inputs, expected);
     }
 
@@ -236,7 +244,10 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(key("go-task", "3.48.0"), resolution("3d46470", "go-task"));
+        expected.insert(
+            key("go-task", "3.48.0"),
+            resolution("3d464701abf1dac19bf39d6ff8c07c8c37e81e0e", "go-task"),
+        );
         assert_eq!(inputs, expected);
     }
 
@@ -248,7 +259,7 @@ mod tests {
             r#"{
   inputs = {
     nixpkgs--broken--0-0-0.url = "invalid";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
   };
   outputs = {
     devShells.default = stablePackages.mkShell {
@@ -265,7 +276,10 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(key("go", "1.21.13"), resolution("5ed6275", "go_1_21"));
+        expected.insert(
+            key("go", "1.21.13"),
+            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
+        );
         assert_eq!(inputs, expected);
     }
 
@@ -368,8 +382,14 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(key("go", "1.21.13"), resolution("5ed6275", "go_1_21"));
-        expected.insert(key("rust", "1.70.0"), resolution("abcd123", "rustc"));
+        expected.insert(
+            key("go", "1.21.13"),
+            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
+        );
+        expected.insert(
+            key("rust", "1.70.0"),
+            resolution("abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e", "rustc"),
+        );
         assert_eq!(inputs, expected);
     }
 
@@ -380,7 +400,7 @@ mod tests {
             &dir,
             r#"{
   inputs = {
-    nixpkgs--urlHelper--1-0-0.url = "github:NixOS/nixpkgs/deadbee";
+    nixpkgs--urlHelper--1-0-0.url = "github:NixOS/nixpkgs/deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
   };
   outputs = { self, ... }:
     let
@@ -402,9 +422,35 @@ mod tests {
         let mut expected = HashMap::new();
         expected.insert(
             key("urlHelper", "1.0.0"),
-            resolution("deadbee", "urlHelper"),
+            resolution("deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e", "urlHelper"),
         );
         assert_eq!(inputs, expected);
+    }
+
+    #[test]
+    fn drops_entry_whose_url_line_has_a_short_rev() {
+        let dir = TempDir::new().unwrap();
+        write_flake(
+            &dir,
+            r#"{
+  inputs = {
+    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+  };
+  outputs = { self, ... }:
+    {
+      devShells.default = stablePackages.mkShell {
+        buildInputs = [
+          pinnedPkgs-go-1-21-13.go_1_21
+        ];
+      };
+    };
+}
+"#,
+        );
+
+        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+
+        assert!(inputs.is_empty());
     }
 
     #[test]
@@ -414,7 +460,7 @@ mod tests {
             &dir,
             r#"{
   inputs = {
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
   };
   outputs = { self, ... }:
     {
@@ -431,7 +477,10 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(key("go", "1.21.13"), resolution("5ed6275", "go_1_21"));
+        expected.insert(
+            key("go", "1.21.13"),
+            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
+        );
         assert_eq!(inputs, expected);
     }
 }

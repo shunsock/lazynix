@@ -122,7 +122,7 @@ mod tests {
         cached.insert(
             ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
             PinnedResolution {
-                commit: "CACHED_COMMIT".to_string(),
+                commit: "cacecacecacecacecacecacecacecacecacecace".parse().unwrap(),
                 attr: "CACHED_ATTR".to_string(),
             },
         );
@@ -138,7 +138,7 @@ mod tests {
             .flake_writer
             .written()
             .expect("flake.nix should be written");
-        assert!(written.contains("CACHED_COMMIT"));
+        assert!(written.contains("cacecacecacecacecacecacecacecacecacecace"));
         assert!(written.contains("CACHED_ATTR"));
     }
 

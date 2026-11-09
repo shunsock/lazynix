@@ -179,7 +179,7 @@ mod tests {
 
         let resolved = assemble_resolved_version("go@1.21.13", &name, &version, &stdout).unwrap();
 
-        assert_eq!(resolved.commit, full);
+        assert_eq!(resolved.commit.as_str(), full);
         assert_eq!(resolved.attr, "go_1_21");
     }
 }

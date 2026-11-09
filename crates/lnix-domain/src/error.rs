@@ -36,6 +36,11 @@ pub enum ParseError {
         "Invalid registry URL: '{0}'. Expected format: 'github:OWNER/REPO/BRANCH' (e.g., 'github:NixOS/nixpkgs/nixos-26.05')"
     )]
     InvalidRegistryUrl(String),
+
+    #[error(
+        "Invalid commit SHA: '{0}'. Expected a full 40-character lowercase hex SHA (e.g., '5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e')"
+    )]
+    InvalidCommitSha(String),
 }
 
 /// Raised by [`crate::validate_config`] for constraints that span

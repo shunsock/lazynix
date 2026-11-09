@@ -4,12 +4,14 @@
 //! `TryFrom<String>`. Serde integration (`try_from` / `into`) ensures
 //! that deserialized values are always valid.
 
+mod commit_sha;
 mod env_var_name;
 mod package_name;
 mod package_version;
 mod registry_url;
 mod task_name;
 
+pub use commit_sha::CommitSha;
 pub use env_var_name::EnvVarName;
 pub use package_name::PackageName;
 pub use package_version::PackageVersion;
