@@ -166,18 +166,15 @@ mod tests {
 
     #[test]
     fn rejects_malformed_resolve_responses() {
-        let bodies = [
-            "not json",
-            r#"{"name":"go"}"#,
-            r#"{"commit_hash":"5ed6275"}"#,
-            r#"{"commit_hash":"5ED62751ABF1DAC19BF39D6FF8C07C8C37E81E0E"}"#,
-            r#"{"commit_hash":"ZZZ62751abf1dac19bf39d6ff8c07c8c37e81e0e"}"#,
-        ];
+        // NOTE: bad_sha covers CommitSha rejection via this adapter;
+        // exhaustive cases live in CommitSha::rejects_malformed_shas.
+        let not_json = parse_resolve_response("go@1.21.13", "not json");
+        let no_field = parse_resolve_response("go@1.21.13", r#"{"name":"go"}"#);
+        let bad_sha = parse_resolve_response("go@1.21.13", r#"{"commit_hash":"5ed6275"}"#);
 
-        for body in bodies {
-            let result = parse_resolve_response("go@1.21.13", body);
-            assert!(matches!(result, Err(NixError::VersionResolution { .. })));
-        }
+        assert!(matches!(not_json, Err(NixError::VersionResolution { .. })));
+        assert!(matches!(no_field, Err(NixError::VersionResolution { .. })));
+        assert!(matches!(bad_sha, Err(NixError::VersionResolution { .. })));
     }
 
     #[test]

@@ -107,11 +107,28 @@ fn parse_attr_line(
     Some((key, attr))
 }
 
+/// Finds the `(name, version)` key whose binding-name encoding matches
+/// `name_and_version`.
+///
+/// `HashMap::keys()` order varies by process (it is seeded per run), so
+/// scanning it directly would make the attribution of a binding-name
+/// collision non-deterministic. We sort the keys first so that a
+/// collision is always resolved to the same, lexicographically first
+/// key.
+///
+/// WHITELIST: a collision can only occur when two configured
+/// `(name, version)` pairs encode to the same binding name (e.g. `go` +
+/// `1.21.13` and `go-1` + `21.13` both encode to `go-1-21-13`). Config
+/// validation rejects pinned entries that would collide, so production
+/// `flake.nix` files never reach this branch; the deterministic
+/// tie-break only matters for malformed input.
 fn match_known_key(
     name_and_version: &str,
     commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
 ) -> Option<(PackageName, PackageVersion)> {
-    for (name, version) in commits.keys() {
+    let mut sorted_keys: Vec<&(PackageName, PackageVersion)> = commits.keys().collect();
+    sorted_keys.sort_by_key(|(name, version)| (name.as_str(), version.as_str()));
+    for (name, version) in sorted_keys {
         let expected = format!("{}-{}", name.as_str(), version.as_str().replace('.', "-"));
         if expected == name_and_version {
             return Some((name.clone(), version.clone()));
@@ -161,64 +178,30 @@ mod tests {
         }
     }
 
-    const SINGLE_GO_FLAKE: &str = r#"{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-  };
-  outputs = { self, nixpkgs, nixpkgs--go--1-21-13, ... }:
-    let
-      pinnedPkgs-go-1-21-13 = import nixpkgs--go--1-21-13 { };
-    in
-    {
-      devShells.default = stablePackages.mkShell {
-        buildInputs = [
-          pinnedPkgs-go-1-21-13.go_1_21
-        ];
-      };
-    };
-}
+    // NOTE: named consts keep call sites on one rustfmt line instead
+    // of wrapping on the inline 40-char hex literal.
+    const SHA_GO: &str = "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const SHA_GO_TASK: &str = "3d464701abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const SHA_RUST: &str = "abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const SHA_URL: &str = "deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
+
+    // NOTE: the reader matches lines by prefix, so fixtures need
+    // only the matched lines, not a structurally valid flake.nix.
+    const SINGLE_GO_FLAKE: &str = r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-1-21-13.go_1_21
 "#;
 
-    const HYPHENATED_ATTR_FLAKE: &str = r#"{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs--go-task--3-48-0.url = "github:NixOS/nixpkgs/3d464701abf1dac19bf39d6ff8c07c8c37e81e0e";
-  };
-  outputs = { self, nixpkgs, nixpkgs--go-task--3-48-0, ... }:
-    let
-      pinnedPkgs-go-task-3-48-0 = import nixpkgs--go-task--3-48-0 { };
-    in
-    {
-      devShells.default = stablePackages.mkShell {
-        buildInputs = [
-          pinnedPkgs-go-task-3-48-0.go-task
-        ];
-      };
-    };
-}
+    const HYPHENATED_ATTR_FLAKE: &str = r#"
+nixpkgs--go-task--3-48-0.url = "github:NixOS/nixpkgs/3d464701abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-task-3-48-0.go-task
 "#;
 
-    const TWO_PINNED_FLAKE: &str = r#"{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-    nixpkgs--rust--1-70-0.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
-  };
-  outputs = { self, nixpkgs, nixpkgs--go--1-21-13, nixpkgs--rust--1-70-0, ... }:
-    let
-      pinnedPkgs-go-1-21-13 = import nixpkgs--go--1-21-13 { };
-      pinnedPkgs-rust-1-70-0 = import nixpkgs--rust--1-70-0 { };
-    in
-    {
-      devShells.default = stablePackages.mkShell {
-        buildInputs = [
-          pinnedPkgs-go-1-21-13.go_1_21
-          pinnedPkgs-rust-1-70-0.rustc
-        ];
-      };
-    };
-}
+    const TWO_PINNED_FLAKE: &str = r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+nixpkgs--rust--1-70-0.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-1-21-13.go_1_21
+pinnedPkgs-rust-1-70-0.rustc
 "#;
 
     #[test]
@@ -229,10 +212,7 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(
-            key("go", "1.21.13"),
-            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
-        );
+        expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
         assert_eq!(inputs, expected);
     }
 
@@ -244,10 +224,7 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(
-            key("go-task", "3.48.0"),
-            resolution("3d464701abf1dac19bf39d6ff8c07c8c37e81e0e", "go-task"),
-        );
+        expected.insert(key("go-task", "3.48.0"), resolution(SHA_GO_TASK, "go-task"));
         assert_eq!(inputs, expected);
     }
 
@@ -256,30 +233,18 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  inputs = {
-    nixpkgs--broken--0-0-0.url = "invalid";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-  };
-  outputs = {
-    devShells.default = stablePackages.mkShell {
-      buildInputs = [
-        pinnedPkgs-broken-0-0-0.some_attr
-        pinnedPkgs-go-1-21-13.go_1_21
-      ];
-    };
-  };
-}
+            r#"
+nixpkgs--broken--0-0-0.url = "invalid";
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-broken-0-0-0.some_attr
+pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(
-            key("go", "1.21.13"),
-            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
-        );
+        expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
         assert_eq!(inputs, expected);
     }
 
@@ -288,25 +253,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
-  };
-  outputs = { self, nixpkgs, nixpkgs-unstable, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        stablePackages = import nixpkgs { inherit system; };
-      in
-      {
-        devShells.default = stablePackages.mkShell {
-          buildInputs = [
-            stablePackages.bash
-          ];
-        };
-      });
-}
+            r#"
+nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+flake-utils.url = "github:numtide/flake-utils";
 "#,
         );
 
@@ -320,11 +270,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  inputs = {
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
-  };
-}
+            r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
 "#,
         );
 
@@ -338,15 +285,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  outputs = {
-    devShells.default = stablePackages.mkShell {
-      buildInputs = [
-        pinnedPkgs-go-1-21-13.go_1_21
-      ];
-    };
-  };
-}
+            r#"
+pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
@@ -382,14 +322,8 @@ mod tests {
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(
-            key("go", "1.21.13"),
-            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
-        );
-        expected.insert(
-            key("rust", "1.70.0"),
-            resolution("abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e", "rustc"),
-        );
+        expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
+        expected.insert(key("rust", "1.70.0"), resolution(SHA_RUST, "rustc"));
         assert_eq!(inputs, expected);
     }
 
@@ -398,32 +332,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  inputs = {
-    nixpkgs--urlHelper--1-0-0.url = "github:NixOS/nixpkgs/deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
-  };
-  outputs = { self, ... }:
-    let
-      pinnedPkgs-urlHelper-1-0-0 = import nixpkgs--urlHelper--1-0-0 { };
-    in
-    {
-      devShells.default = stablePackages.mkShell {
-        buildInputs = [
-          pinnedPkgs-urlHelper-1-0-0.urlHelper
-        ];
-      };
-    };
-}
+            r#"
+nixpkgs--urlHelper--1-0-0.url = "github:NixOS/nixpkgs/deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-urlHelper-1-0-0.urlHelper
 "#,
         );
 
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(
-            key("urlHelper", "1.0.0"),
-            resolution("deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e", "urlHelper"),
-        );
+        expected.insert(key("urlHelper", "1.0.0"), resolution(SHA_URL, "urlHelper"));
         assert_eq!(inputs, expected);
     }
 
@@ -432,19 +350,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  inputs = {
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
-  };
-  outputs = { self, ... }:
-    {
-      devShells.default = stablePackages.mkShell {
-        buildInputs = [
-          pinnedPkgs-go-1-21-13.go_1_21
-        ];
-      };
-    };
-}
+            r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
@@ -454,33 +362,39 @@ mod tests {
     }
 
     #[test]
-    fn attr_trailing_semicolon_is_stripped() {
+    fn attributes_colliding_binding_name_to_the_lexicographically_first_key() {
         let dir = TempDir::new().unwrap();
         write_flake(
             &dir,
-            r#"{
-  inputs = {
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-  };
-  outputs = { self, ... }:
-    {
-      devShells.default = stablePackages.mkShell {
-        buildInputs = [
-          pinnedPkgs-go-1-21-13.go_1_21;
-        ];
-      };
-    };
-}
+            r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+nixpkgs--go-1--21-13.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
         let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
 
         let mut expected = HashMap::new();
-        expected.insert(
-            key("go", "1.21.13"),
-            resolution("5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "go_1_21"),
+        expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
+        assert_eq!(inputs, expected);
+    }
+
+    #[test]
+    fn attr_trailing_semicolon_is_stripped() {
+        let dir = TempDir::new().unwrap();
+        write_flake(
+            &dir,
+            r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-1-21-13.go_1_21;
+"#,
         );
+
+        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+
+        let mut expected = HashMap::new();
+        expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
         assert_eq!(inputs, expected);
     }
 }

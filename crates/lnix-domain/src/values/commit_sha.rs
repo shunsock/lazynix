@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ParseError;
 
-/// The full SHA of a commit in the nixpkgs repository.
+/// A full commit SHA in the nixpkgs repository.
 ///
 /// Invariant: exactly 40 lowercase hex characters (`[0-9a-f]{40}`).
 ///
