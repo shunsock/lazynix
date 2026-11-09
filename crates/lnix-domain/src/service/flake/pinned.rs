@@ -9,7 +9,7 @@
 //! (see `lnix_infra::persistence::flake_reader`); keeping them in one
 //! place prevents silent breakage when the writer format changes.
 
-use crate::{DevShellDefinition, PinnedPackageEntry};
+use crate::{DevShellDefinition, PackageName, PackageVersion, PinnedPackageEntry};
 
 /// Prefix of a flake input name for a pinned package
 /// (`nixpkgs--<name>--<dashed-version>`).
@@ -31,21 +31,31 @@ fn normalize_version(version: &str) -> String {
     version.replace('.', "-")
 }
 
-fn input_name(entry: &PinnedPackageEntry) -> String {
+/// Encodes (name, version) into the flake input name
+/// `nixpkgs--<name>--<dashed-version>`.
+///
+/// CONSTRAINT: the reader (lnix_infra flake_reader) must derive names
+/// via this function instead of decoding them back.
+/// REASON: the dot-to-hyphen encoding is not reversible.
+pub fn input_name(name: &PackageName, version: &PackageVersion) -> String {
     format!(
         "{}{}--{}",
         PINNED_INPUT_PREFIX,
-        entry.name,
-        normalize_version(entry.version.as_str())
+        name,
+        normalize_version(version.as_str())
     )
 }
 
-fn binding_name(entry: &PinnedPackageEntry) -> String {
+/// Encodes (name, version) into the `let`-binding / `buildInputs` name
+/// `pinnedPkgs-<name>-<dashed-version>`.
+///
+/// See `input_name` for the shared constraint.
+pub fn binding_name(name: &PackageName, version: &PackageVersion) -> String {
     format!(
         "{}{}-{}",
         PINNED_BINDING_PREFIX,
-        entry.name,
-        normalize_version(entry.version.as_str())
+        name,
+        normalize_version(version.as_str())
     )
 }
 
@@ -67,7 +77,11 @@ pub(super) fn render_packages(resolved: &[&PinnedPackageEntry]) -> String {
         .iter()
         .map(|entry| {
             let attr = entry.resolved_attr.as_ref().unwrap();
-            format!("            {}.{}", binding_name(entry), attr)
+            format!(
+                "            {}.{}",
+                binding_name(&entry.name, &entry.version),
+                attr
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -81,7 +95,7 @@ pub(super) fn render_inputs(resolved: &[&PinnedPackageEntry]) -> String {
             let commit = entry.resolved_commit.as_ref().unwrap();
             format!(
                 "    {}.url = \"github:NixOS/nixpkgs/{}\";",
-                input_name(entry),
+                input_name(&entry.name, &entry.version),
                 commit
             )
         })
@@ -96,7 +110,7 @@ pub(super) fn render_output_params(resolved: &[&PinnedPackageEntry]) -> String {
     }
     let params = resolved
         .iter()
-        .map(|entry| input_name(entry))
+        .map(|entry| input_name(&entry.name, &entry.version))
         .collect::<Vec<_>>()
         .join(", ");
     format!(", {}", params)
@@ -109,8 +123,8 @@ pub(super) fn render_let_bindings(resolved: &[&PinnedPackageEntry], allow_unfree
         .map(|entry| {
             format!(
                 "        {} = import {} {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",
-                binding_name(entry),
-                input_name(entry),
+                binding_name(&entry.name, &entry.version),
+                input_name(&entry.name, &entry.version),
                 allow_unfree
             )
         })
@@ -143,8 +157,29 @@ resolvedAttr: "go_1_21"
     fn derives_input_and_binding_names() {
         let entry = resolved_go();
 
-        assert_eq!(input_name(&entry), "nixpkgs--go--1-21-13");
-        assert_eq!(binding_name(&entry), "pinnedPkgs-go-1-21-13");
+        assert_eq!(
+            input_name(&entry.name, &entry.version),
+            "nixpkgs--go--1-21-13"
+        );
+        assert_eq!(
+            binding_name(&entry.name, &entry.version),
+            "pinnedPkgs-go-1-21-13"
+        );
+    }
+
+    #[test]
+    fn encodes_hyphenated_version() {
+        let name: PackageName = "dotnet-sdk_11".parse().unwrap();
+        let version: PackageVersion = "11.0.100-preview.7.26381.103".parse().unwrap();
+
+        assert_eq!(
+            input_name(&name, &version),
+            "nixpkgs--dotnet-sdk_11--11-0-100-preview-7-26381-103"
+        );
+        assert_eq!(
+            binding_name(&name, &version),
+            "pinnedPkgs-dotnet-sdk_11-11-0-100-preview-7-26381-103"
+        );
     }
 
     #[test]
