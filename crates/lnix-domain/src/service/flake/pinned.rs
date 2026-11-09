@@ -27,7 +27,7 @@ pub const PINNED_BINDING_PREFIX: &str = "pinnedPkgs-";
 /// nixpkgs commit (`github:NixOS/nixpkgs/<commit>`).
 pub const PINNED_URL_COMMIT_PREFIX: &str = "github:NixOS/nixpkgs/";
 
-fn normalize_version(version: &str) -> String {
+fn replace_dots_with_hyphens(version: &str) -> String {
     version.replace('.', "-")
 }
 
@@ -36,14 +36,11 @@ fn normalize_version(version: &str) -> String {
 ///
 /// CONSTRAINT: the reader (lnix_infra flake_reader) must derive names
 /// via this function instead of decoding them back.
-/// REASON: the dot-to-hyphen encoding is not reversible.
+/// REASON: the encoding is non-injective; distinct versions can collide.
+/// Config validation rejects pinned entries that would collide.
 pub fn input_name(name: &PackageName, version: &PackageVersion) -> String {
-    format!(
-        "{}{}--{}",
-        PINNED_INPUT_PREFIX,
-        name,
-        normalize_version(version.as_str())
-    )
+    let dashed_version = replace_dots_with_hyphens(version.as_str());
+    format!("{}{}--{}", PINNED_INPUT_PREFIX, name, dashed_version)
 }
 
 /// Encodes (name, version) into the `let`-binding / `buildInputs` name
@@ -51,12 +48,8 @@ pub fn input_name(name: &PackageName, version: &PackageVersion) -> String {
 ///
 /// See `input_name` for the shared constraint.
 pub fn binding_name(name: &PackageName, version: &PackageVersion) -> String {
-    format!(
-        "{}{}-{}",
-        PINNED_BINDING_PREFIX,
-        name,
-        normalize_version(version.as_str())
-    )
+    let dashed_version = replace_dots_with_hyphens(version.as_str());
+    format!("{}{}-{}", PINNED_BINDING_PREFIX, name, dashed_version)
 }
 
 /// Collects the pinned entries that have been resolved to a concrete
@@ -71,36 +64,41 @@ pub(super) fn collect_resolved(config: &DevShellDefinition) -> Vec<&PinnedPackag
         .collect()
 }
 
+/// Joins already-rendered lines with newlines, the shared join step of
+/// every `render_*` function below.
+fn join_lines(lines: Vec<String>) -> String {
+    lines.join("\n")
+}
+
+fn render_pinned_build_input(entry: &&PinnedPackageEntry) -> String {
+    let binding = binding_name(&entry.name, &entry.version);
+    let attr = entry.resolved_attr.as_ref();
+    let attr = attr.expect("filtered by collect_resolved");
+    format!("            {}.{}", binding, attr)
+}
+
 /// `buildInputs` entries, e.g. `pinnedPkgs-go-1-21-13.go_1_21`.
-pub(super) fn render_packages(resolved: &[&PinnedPackageEntry]) -> String {
-    resolved
-        .iter()
-        .map(|entry| {
-            let attr = entry.resolved_attr.as_ref().unwrap();
-            format!(
-                "            {}.{}",
-                binding_name(&entry.name, &entry.version),
-                attr
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+pub(super) fn render_pinned_build_inputs(resolved: &[&PinnedPackageEntry]) -> String {
+    let lines: Vec<String> = resolved.iter().map(render_pinned_build_input).collect();
+    join_lines(lines)
+}
+
+fn render_pinned_input(entry: &&PinnedPackageEntry) -> String {
+    let input = input_name(&entry.name, &entry.version);
+    let commit = entry.resolved_commit.as_ref();
+    let commit = commit.expect("filtered by collect_resolved");
+    let url = format!("{}{}", PINNED_URL_COMMIT_PREFIX, commit);
+    format!("    {}{} \"{}\";", input, PINNED_INPUT_URL_SUFFIX, url)
 }
 
 /// Flake `inputs` lines pinning each package to a nixpkgs revision.
 pub(super) fn render_inputs(resolved: &[&PinnedPackageEntry]) -> String {
-    resolved
-        .iter()
-        .map(|entry| {
-            let commit = entry.resolved_commit.as_ref().unwrap();
-            format!(
-                "    {}.url = \"github:NixOS/nixpkgs/{}\";",
-                input_name(&entry.name, &entry.version),
-                commit
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let lines: Vec<String> = resolved.iter().map(render_pinned_input).collect();
+    join_lines(lines)
+}
+
+fn render_output_param(entry: &&PinnedPackageEntry) -> String {
+    input_name(&entry.name, &entry.version)
 }
 
 /// Trailing output parameters, e.g. `, nixpkgs--go--1-21-13`.
@@ -108,28 +106,24 @@ pub(super) fn render_output_params(resolved: &[&PinnedPackageEntry]) -> String {
     if resolved.is_empty() {
         return String::new();
     }
-    let params = resolved
-        .iter()
-        .map(|entry| input_name(&entry.name, &entry.version))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(", {}", params)
+    let names: Vec<String> = resolved.iter().map(render_output_param).collect();
+    format!(", {}", names.join(", "))
+}
+
+fn render_let_binding(entry: &&PinnedPackageEntry, allow_unfree: bool) -> String {
+    let binding = binding_name(&entry.name, &entry.version);
+    let input = input_name(&entry.name, &entry.version);
+    format!(
+        "        {} = import {} {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",
+        binding, input, allow_unfree
+    )
 }
 
 /// `let` bindings importing each pinned revision with the unfree flag.
 pub(super) fn render_let_bindings(resolved: &[&PinnedPackageEntry], allow_unfree: bool) -> String {
-    resolved
-        .iter()
-        .map(|entry| {
-            format!(
-                "        {} = import {} {{\n          inherit system;\n          config.allowUnfree = {};\n        }};",
-                binding_name(&entry.name, &entry.version),
-                input_name(&entry.name, &entry.version),
-                allow_unfree
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let render = |e: &&PinnedPackageEntry| render_let_binding(e, allow_unfree);
+    let lines: Vec<String> = resolved.iter().map(render).collect();
+    join_lines(lines)
 }
 
 #[cfg(test)]
@@ -150,34 +144,32 @@ resolvedAttr: "go_1_21"
 
     #[test]
     fn normalizes_dots_to_hyphens() {
-        assert_eq!(normalize_version("1.21.13"), "1-21-13");
+        assert_eq!(replace_dots_with_hyphens("1.21.13"), "1-21-13");
     }
 
     #[test]
     fn derives_input_and_binding_names() {
         let entry = resolved_go();
+        let input = input_name(&entry.name, &entry.version);
+        let binding = binding_name(&entry.name, &entry.version);
 
-        assert_eq!(
-            input_name(&entry.name, &entry.version),
-            "nixpkgs--go--1-21-13"
-        );
-        assert_eq!(
-            binding_name(&entry.name, &entry.version),
-            "pinnedPkgs-go-1-21-13"
-        );
+        assert_eq!(input, "nixpkgs--go--1-21-13");
+        assert_eq!(binding, "pinnedPkgs-go-1-21-13");
     }
 
     #[test]
     fn encodes_hyphenated_version() {
         let name: PackageName = "dotnet-sdk_11".parse().unwrap();
         let version: PackageVersion = "11.0.100-preview.7.26381.103".parse().unwrap();
+        let input = input_name(&name, &version);
+        let binding = binding_name(&name, &version);
 
         assert_eq!(
-            input_name(&name, &version),
+            input,
             "nixpkgs--dotnet-sdk_11--11-0-100-preview-7-26381-103"
         );
         assert_eq!(
-            binding_name(&name, &version),
+            binding,
             "pinnedPkgs-dotnet-sdk_11-11-0-100-preview-7-26381-103"
         );
     }
@@ -185,7 +177,6 @@ resolvedAttr: "go_1_21"
     #[test]
     fn renders_input_pinned_to_commit() {
         let entry = resolved_go();
-
         let inputs = render_inputs(&[&entry]);
 
         assert_eq!(

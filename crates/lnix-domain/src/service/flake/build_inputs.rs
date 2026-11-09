@@ -36,7 +36,7 @@ pub(super) fn render_build_inputs(
             "Unstable",
             &render_channel("unstablePackages", &package.unstable),
         ),
-        labeled_group("Pinned", &pinned::render_packages(resolved)),
+        labeled_group("Pinned", &pinned::render_pinned_build_inputs(resolved)),
     ];
 
     let parts: Vec<String> = groups.into_iter().flatten().collect();
@@ -56,19 +56,15 @@ mod tests {
 
     #[test]
     fn emits_placeholder_when_no_packages() {
-        // Arrange
         let config = config_from_yaml("devShell:\n  package: {}\n");
 
-        // Act
         let build_inputs = render_build_inputs(&config, &[]);
 
-        // Assert
         assert_eq!(build_inputs, "            # No packages specified");
     }
 
     #[test]
     fn groups_stable_and_unstable_packages() {
-        // Arrange
         let config = config_from_yaml(
             r#"
 devShell:
@@ -81,10 +77,8 @@ devShell:
 "#,
         );
 
-        // Act
         let build_inputs = render_build_inputs(&config, &[]);
 
-        // Assert
         assert!(build_inputs.contains("# Stable packages"));
         assert!(build_inputs.contains("stablePackages.python312"));
         assert!(build_inputs.contains("stablePackages.gcc"));
