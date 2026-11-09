@@ -59,16 +59,16 @@ pub enum ValidationError {
     // CONSTRAINT: このバリアントはポインタ1語分に留めなければならない。
     // REASON: Stringを5つ内包すると result_large_err 閾値を超えるため。
     #[error(
-        "Pinned packages ('{fname}', '{fver}') and ('{sname}', '{sver}') both encode to the flake input name '{enc}'; use a distinct name or version",
-        fname = .0.first_name, fver = .0.first_version,
-        sname = .0.second_name, sver = .0.second_version, enc = .0.encoded
+        "Pinned packages ('{first_name}', '{first_version}') and ('{second_name}', '{second_version}') both encode to the flake input name '{encoded}'; use a distinct name or version",
+        first_name = .0.first_name, first_version = .0.first_version,
+        second_name = .0.second_name, second_version = .0.second_version, encoded = .0.encoded
     )]
     PinnedInputNameCollision(Box<PinnedNameCollision>),
 
     #[error(
-        "Pinned packages ('{fname}', '{fver}') and ('{sname}', '{sver}') both encode to the flake let-binding name '{enc}'; use a distinct name or version",
-        fname = .0.first_name, fver = .0.first_version,
-        sname = .0.second_name, sver = .0.second_version, enc = .0.encoded
+        "Pinned packages ('{first_name}', '{first_version}') and ('{second_name}', '{second_version}') both encode to the flake let-binding name '{encoded}'; use a distinct name or version",
+        first_name = .0.first_name, first_version = .0.first_version,
+        second_name = .0.second_name, second_version = .0.second_version, encoded = .0.encoded
     )]
     PinnedBindingNameCollision(Box<PinnedNameCollision>),
 }

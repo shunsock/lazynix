@@ -250,15 +250,19 @@ impl StubResolver {
 pub(crate) struct MockFlakeReader {
     inputs: PinnedResolutions,
     read_calls: RefCell<u32>,
+    pinned_keys_calls: RefCell<Vec<Vec<(PackageName, PackageVersion)>>>,
     should_fail: bool,
 }
 
 impl FlakeReader for MockFlakeReader {
     fn read_pinned_inputs(
         &self,
-        _known: &[(PackageName, PackageVersion)],
+        pinned_keys: &[(PackageName, PackageVersion)],
     ) -> Result<PinnedResolutions, FlakeError> {
         *self.read_calls.borrow_mut() += 1;
+        self.pinned_keys_calls
+            .borrow_mut()
+            .push(pinned_keys.to_vec());
         if self.should_fail {
             return Err(FlakeError::Read(std::io::Error::other(
                 "mock flake reader failure",
@@ -282,6 +286,12 @@ impl MockFlakeReader {
 
     pub(crate) fn read_calls(&self) -> u32 {
         *self.read_calls.borrow()
+    }
+
+    /// Records the `pinned_keys` slice supplied on each
+    /// `read_pinned_inputs` call, in call order.
+    pub(crate) fn pinned_keys_calls(&self) -> Vec<Vec<(PackageName, PackageVersion)>> {
+        self.pinned_keys_calls.borrow().clone()
     }
 }
 

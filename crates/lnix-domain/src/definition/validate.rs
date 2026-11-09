@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::definition::dev_shell::DevShellDefinition;
 use crate::error::{Diagnostic, PinnedNameCollision, ValidationError};
 use crate::service::flake::pinned::{binding_name, input_name};
@@ -56,28 +54,51 @@ fn is_allowed_version_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')
 }
 
-// CONSTRAINT: 両エンコードの衝突を拒否しなければならない。
-// REASON: binding は input より区切り文字が少なく別に衝突しうる。
+// CONSTRAINT: 完全一致と接頭辞衝突の両方を拒否しなければならない。
+// REASON: reader は名前で行照合するため、どちらも attr を誤割当させる。
+// NOTE: sorting makes one adjacent-pairs scan enough for both,
+// since '-'/'.' sort smallest among the allowed bytes.
 fn reject_colliding_pinned_names(
     pinned: &[crate::PinnedPackageEntry],
     encode: impl Fn(&crate::PackageName, &crate::PackageVersion) -> String,
     make_error: impl Fn(PinnedNameCollision) -> ValidationError,
 ) -> Result<(), ValidationError> {
-    let mut seen: HashMap<String, &crate::PinnedPackageEntry> = HashMap::new();
-    for entry in pinned {
-        let encoded = encode(&entry.name, &entry.version);
-        if let Some(first) = seen.get(&encoded) {
-            return Err(make_error(PinnedNameCollision {
-                first_name: first.name.as_str().to_string(),
-                first_version: first.version.as_str().to_string(),
-                second_name: entry.name.as_str().to_string(),
-                second_version: entry.version.as_str().to_string(),
-                encoded,
-            }));
-        }
-        seen.insert(encoded, entry);
+    let mut encoded: Vec<(&crate::PinnedPackageEntry, String)> = pinned
+        .iter()
+        .map(|entry| (entry, encode(&entry.name, &entry.version)))
+        .collect();
+    encoded.sort_by(|a, b| a.1.cmp(&b.1));
+
+    for pair in encoded.windows(2) {
+        let (first, first_encoded) = &pair[0];
+        let (second, second_encoded) = &pair[1];
+        let Some(collided) = colliding_name(first_encoded, second_encoded) else {
+            continue;
+        };
+        return Err(make_error(PinnedNameCollision {
+            first_name: first.name.as_str().to_string(),
+            first_version: first.version.as_str().to_string(),
+            second_name: second.name.as_str().to_string(),
+            second_version: second.version.as_str().to_string(),
+            encoded: collided,
+        }));
     }
     Ok(())
+}
+
+/// Returns a description when `a` and `b` collide: either an exact
+/// match, or the shorter being a proper prefix of the longer that is
+/// immediately followed by `.` or `-`. For a prefix match, the result
+/// is `"{shorter}+{rest}"`, so `longer == shorter` followed by `rest`.
+/// Returns `None` when they neither match nor overlap this way.
+fn colliding_name(a: &str, b: &str) -> Option<String> {
+    if a == b {
+        return Some(a.to_string());
+    }
+    let (shorter, longer) = if a.len() < b.len() { (a, b) } else { (b, a) };
+    let boundary = longer.as_bytes().get(shorter.len()).copied()?;
+    let collides = longer.starts_with(shorter) && matches!(boundary, b'.' | b'-');
+    collides.then(|| format!("{shorter}+{}", &longer[shorter.len()..]))
 }
 
 #[cfg(test)]
@@ -88,18 +109,25 @@ mod tests {
         serde_yaml::from_str(yaml).unwrap()
     }
 
+    // NOTE: every test below only checks the Ok/Err shape, so these
+    // two helpers carry that one shared assertion.
+    fn assert_valid(config: &DevShellDefinition) {
+        assert_eq!(validate_config(config).unwrap(), Vec::<Diagnostic>::new());
+    }
+
+    fn assert_rejects(config: &DevShellDefinition, expected: ValidationError) {
+        assert_eq!(validate_config(config).unwrap_err(), expected);
+    }
+
     #[test]
     fn accepts_config_with_valid_task() {
         let yaml = r#"devShell: {package: {stable: [{name: bash}]}, task: {sync: {commands: ["uv sync"]}}}"#;
-        let config = parse(yaml);
-
-        assert_eq!(validate_config(&config).unwrap(), Vec::<Diagnostic>::new());
+        assert_valid(&parse(yaml));
     }
 
     #[test]
     fn reports_no_packages_as_diagnostic() {
         let config = parse(r#"devShell: {package: {stable: []}}"#);
-
         assert_eq!(
             validate_config(&config).unwrap(),
             vec![Diagnostic::NoPackages]
@@ -119,6 +147,10 @@ mod tests {
             .collect::<Vec<_>>()
             .join(", ");
         format!("devShell: {{package: {{pinned: [{items}]}}}}")
+    }
+
+    fn parse_pinned(entries: &[(&str, &str)]) -> DevShellDefinition {
+        parse(&pinned_yaml(entries))
     }
 
     fn invalid_version(name: &str, version: &str) -> ValidationError {
@@ -148,11 +180,8 @@ mod tests {
     fn rejects_pinned_version_with_invalid_characters() {
         let cases = [("go", ">=1.20,<1.22"), ("go", "1.0\n\"evil\" = true;")];
         for (name, version) in cases {
-            let config = parse(&pinned_yaml(&[(name, version)]));
-            assert_eq!(
-                validate_config(&config).unwrap_err(),
-                invalid_version(name, version)
-            );
+            let config = parse_pinned(&[(name, version)]);
+            assert_rejects(&config, invalid_version(name, version));
         }
     }
 
@@ -162,45 +191,38 @@ mod tests {
             ("go", "1.2.3", "go", "1-2-3", "nixpkgs--go--1-2-3"),
             ("go", "1.21.13", "go", "1.21.13", "nixpkgs--go--1-21-13"),
         ];
-        for (n1, v1, n2, v2, encoded) in cases {
-            let config = parse(&pinned_yaml(&[(n1, v1), (n2, v2)]));
-            assert_eq!(
-                validate_config(&config).unwrap_err(),
-                ValidationError::PinnedInputNameCollision(collision(n1, v1, n2, v2, encoded))
-            );
+        for (n1, v1, n2, v2, enc) in cases {
+            let config = parse_pinned(&[(n1, v1), (n2, v2)]);
+            let err = ValidationError::PinnedInputNameCollision(collision(n1, v1, n2, v2, enc));
+            assert_rejects(&config, err);
+        }
+    }
+
+    // NOTE: exact-match and prefix collisions both raise
+    // PinnedBindingNameCollision, so one table covers both.
+    #[test]
+    fn rejects_colliding_pinned_binding_names() {
+        let cases = [
+            ("go", "1.21.13", "go-1", "21.13", "pinnedPkgs-go-1-21-13"),
+            ("a", "b", "a-b.x", "0", "pinnedPkgs-a-b+.x-0"),
+        ];
+        for (n1, v1, n2, v2, enc) in cases {
+            let config = parse_pinned(&[(n1, v1), (n2, v2)]);
+            let err = ValidationError::PinnedBindingNameCollision(collision(n1, v1, n2, v2, enc));
+            assert_rejects(&config, err);
         }
     }
 
     #[test]
-    fn rejects_colliding_pinned_binding_names() {
-        let (n1, v1, n2, v2) = ("go", "1.21.13", "go-1", "21.13");
-        let config = parse(&pinned_yaml(&[(n1, v1), (n2, v2)]));
-
-        assert_eq!(
-            validate_config(&config).unwrap_err(),
-            ValidationError::PinnedBindingNameCollision(collision(
-                n1,
-                v1,
-                n2,
-                v2,
-                "pinnedPkgs-go-1-21-13"
-            ))
-        );
-    }
-
-    #[test]
     fn accepts_valid_pinned_configs() {
-        let single = parse(&pinned_yaml(&[(
+        assert_valid(&parse_pinned(&[(
             "dotnet-sdk_11",
             "11.0.100-preview.7.26381.103",
         )]));
-        let multiple = parse(&pinned_yaml(&[("go", "1.21.13"), ("python", "3.12.0")]));
-
-        assert_eq!(validate_config(&single).unwrap(), Vec::<Diagnostic>::new());
-        assert_eq!(
-            validate_config(&multiple).unwrap(),
-            Vec::<Diagnostic>::new()
-        );
+        assert_valid(&parse_pinned(&[("go", "1.21.13"), ("python", "3.12.0")]));
+        // NOTE: "go-1-1" prefixes "go-1-10", but the next byte is
+        // '0', not '.'/'-', so this is not a collision.
+        assert_valid(&parse_pinned(&[("go", "1.1"), ("go", "1.10")]));
     }
 
     #[test]
@@ -208,10 +230,7 @@ mod tests {
         let yaml =
             r#"devShell: {package: {stable: [{name: bash}]}, task: {empty-task: {commands: []}}}"#;
         let config = parse(yaml);
-
-        assert_eq!(
-            validate_config(&config).unwrap_err(),
-            ValidationError::EmptyTaskCommands("empty-task".to_string())
-        );
+        let expected = ValidationError::EmptyTaskCommands("empty-task".to_string());
+        assert_rejects(&config, expected);
     }
 }
