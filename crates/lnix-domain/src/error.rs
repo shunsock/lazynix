@@ -45,6 +45,22 @@ pub enum ParseError {
 pub enum ValidationError {
     #[error("Task '{0}' has an empty commands list. At least one command must be specified")]
     EmptyTaskCommands(String),
+
+    #[error(
+        "Pinned package '{name}' has invalid version '{version}': only alphanumeric characters, '.', '_', and '-' are allowed"
+    )]
+    InvalidPinnedVersionCharacters { name: String, version: String },
+
+    #[error(
+        "Pinned packages ('{first_name}', '{first_version}') and ('{second_name}', '{second_version}') both encode to the flake input name '{encoded}'; use a distinct name or version"
+    )]
+    PinnedInputNameCollision {
+        first_name: String,
+        first_version: String,
+        second_name: String,
+        second_version: String,
+        encoded: String,
+    },
 }
 
 /// Non-fatal finding from [`crate::validate_config`].
