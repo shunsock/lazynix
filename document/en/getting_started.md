@@ -255,7 +255,7 @@ devShell:
         version: "1.21.13"
 ```
 
-3. Run `lnix develop`. LazyNix invokes `nix-versions` to look up the nixpkgs commit hash and Nix attribute path for that version, then embeds the resolved commit into the generated `flake.nix` as its input URL. Subsequent runs read that `flake.nix` directly, so `nix-versions` is called at most once per (name, version) pair. `lazynix.yaml` itself stays untouched — the `flake.nix` **is** the cache.
+3. Run `lnix develop`. LazyNix invokes `nix-versions` to look up the nixpkgs commit hash (a 7-digit short SHA) and Nix attribute path for that version, expands the short SHA into a 40-digit full SHA via the Devbox v1 resolve API, then embeds the full SHA into the generated `flake.nix` as its input URL. Subsequent runs re-encode the same (name, version) pair with the writer's naming scheme and match it against the `url` / `buildInputs` lines already in `flake.nix`, so `nix-versions` and Devbox are called at most once per (name, version) pair. `lazynix.yaml` itself stays untouched — the `flake.nix` **is** the cache.
 
 Every developer on your team gets exactly Go 1.21.13, without any drift or repeated network lookups.
 

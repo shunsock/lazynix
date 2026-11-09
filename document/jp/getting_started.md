@@ -255,7 +255,7 @@ devShell:
         version: "1.21.13"
 ```
 
-3. `lnix develop` を実行します。LazyNix は `nix-versions` を呼び出して、そのバージョンに対応する nixpkgs のコミットハッシュと Nix の attribute path を解決し、解決したコミットを生成される `flake.nix` の入力 URL に埋め込みます。以降の実行はその `flake.nix` を直接読むため、`nix-versions` の呼び出しは (name, version) の組ごとに最大 1 回で済みます。`lazynix.yaml` 自体には手を加えません — `flake.nix` **こそがキャッシュ**です。
+3. `lnix develop` を実行します。LazyNix は `nix-versions` を呼び出して、そのバージョンに対応する nixpkgs のコミットハッシュ (7 桁の短縮 SHA) と Nix の attribute path を解決します。その後、Devbox v1 resolve API で短縮 SHA を 40 桁のフル SHA へ展開します。展開したフル SHA を、生成される `flake.nix` の入力 URL に埋め込みます。以降の実行は、同じ (name, version) を書き込み時と同じ命名規則で再符号化します。それを `flake.nix` の `url` 行・`buildInputs` 行と照合します。そのため `nix-versions` と Devbox の呼び出しは (name, version) の組ごとに最大 1 回で済みます。`lazynix.yaml` 自体には手を加えません — `flake.nix` **こそがキャッシュ**です。
 
 チームの誰もが正確に Go 1.21.13 を手に入れます。ネットワーク参照の繰り返しもドリフトも起こりません。
 

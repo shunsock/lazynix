@@ -76,7 +76,7 @@ Four sub-modules divide the domain:
 Every trait declared in `lnix_domain::interface` gets an implementation here:
 
 - `persistence/` — filesystem adapters (`ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`). All paths are anchored to `WorkspacePaths` so no adapter reads the current working directory implicitly.
-- `gateway/` — subprocess adapters that call `nix` and `nix-versions`. Two private helpers (`run_inherit` for interactive commands, `run_capture` for evaluated output) keep stdio wiring and error mapping in one place.
+- `gateway/` — subprocess adapters that call `nix` and `nix-versions`. Two private helpers (`run_inherit` for interactive commands, `run_capture` for evaluated output) keep stdio wiring and error mapping in one place. `nix-versions` returns a 7-digit short commit SHA, so the gateway also calls the Devbox v1 resolve API (`nix run nixpkgs#curl`) to expand it into the 40-digit full SHA a pinned-input `rev` requires, verifying the short SHA is a prefix of the resolved full SHA before returning.
 
 `lnix-infra` also bundles the templates used by `lnix init`.
 

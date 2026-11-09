@@ -14,7 +14,7 @@ crates/
   lnix-infra/    # ライブラリ: アダプタ — ファイルシステム、nix サブプロセス、nix-versions
 ```
 
-設計はヘキサゴナル (「ポートとアダプタ」) レイアウトに従います。`lnix-domain` は最内層で、I/O を一切行いません。`lnix-app` は `lnix-domain` に定義されたトレイト (ポート) のみを介してユースケースをオーケストレーションします。`lnix-infra` は具象アダプタを提供し、`lnix` バイナリはすべてを配線するコンポジションルートです。
+設計はヘキサゴナル (「ポートとアダプタ」) レイアウトに従います。`lnix-domain` は最内層で、I/O を一切行いません。`lnix-app` は `lnix-domain` に定義されたトレイト (ポート) のみを介してユースケースをオーケストレーションします。`lnix-infra` は具象アダプタを提供し、`lnix` バイナリはすべてを接続するコンポジションルートです。
 
 ## クレート構成
 
@@ -46,11 +46,11 @@ crates/
 
 各サブコマンドは `usecase/` 配下の `fn(&Deps, ...) -> Result<i32, ApplicationError>` 形状の関数に対応します。`Deps` は、ユースケースが触れうるすべてのポートを借用でまとめたバンドルで、`ConfigRepository`、`FlakeWriter`、`FlakeReader`、`EnvFilePresenceChecker`、`ProjectScaffolder`、`NixRunner`、`NixEvaluator`、`VersionResolver`、`ReporterPort` を含みます。
 
-ユースケースは UI 文言を組み立てません。進行状況は `lnix-app` の `UseCaseEvent` (意味を持つイベント) として `ReporterPort` に送出し、文言化とレイアウトは `lnix` バイナリ側の `TerminalPresenter` が担います。この分離により、JSON 出力・TUI・`--quiet`・i18n はプレゼンタの差し替えだけで追加できます。
+ユースケースは UI 文言を組み立てません。進行状況は `lnix-app` の `UseCaseEvent` (意味を持つイベント) として `ReporterPort` へ渡し、文言化とレイアウトは `lnix` バイナリ側の `TerminalPresenter` が担います。この分離により、JSON 出力・TUI・`--quiet`・i18n はプレゼンタの差し替えだけで追加できます。
 
 `flake.nix` を生成するユースケース (`develop` / `test` / `run`) は、`pipeline.rs` に定義された共通の前段を共有します:
 
-1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `UseCaseEvent::ConfigDiagnostic` として送出)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決。解決結果は生成される `flake.nix` に埋め込まれ、`lazynix.yaml` は書き換えません。再実行時は `FlakeReader` ポート経由で `flake.nix` から `(commit, attr)` を復元し、キャッシュヒット時は resolver 呼び出しをスキップします。
+1. `load_config` — 設定ファイル (settings) の読み込み、`lazynix.yaml` の読み込み、`validate_config` の実行 (診断は `UseCaseEvent::ConfigDiagnostic` として通知)、参照される dotenv ファイルの存在チェック、pinned パッケージの解決。解決結果は生成される `flake.nix` に埋め込まれ、`lazynix.yaml` は書き換えません。再実行時は `FlakeReader` ポートが既知の `(name, version)` を `input_name` / `binding_name` と同じ規則で再符号化し、`flake.nix` の該当行を照合します (復号はしません)。キャッシュヒット時は resolver 呼び出しをスキップします。
 2. `write_flake` — `lnix_domain::render_flake` を呼び出し、結果を `./flake.nix` に書き込む。
 3. `maybe_update_lock` — `--update` が指定されているときのみ `NixRunner::flake_update` を呼び出す。
 
@@ -76,7 +76,7 @@ crates/
 `lnix_domain::interface` で宣言されたすべてのトレイトが、ここで実装されます:
 
 - `persistence/` — ファイルシステムアダプタ (`ConfigRepository`、`FlakeWriter`、`FlakeReader`、`EnvFilePresenceChecker`、`ProjectScaffolder`)。すべてのパスは `WorkspacePaths` を起点とし、どのアダプタも暗黙にカレントディレクトリを読みません。
-- `gateway/` — `nix` および `nix-versions` を呼び出すサブプロセスアダプタ。2 つの内部ヘルパー (対話コマンド用の `run_inherit` と、出力を取り込む `run_capture`) に stdio 配線とエラーマッピングを集約しています。
+- `gateway/` — `nix` および `nix-versions` を呼び出すサブプロセスアダプタ。2 つの内部ヘルパー (対話コマンド用の `run_inherit` と、出力を取り込む `run_capture`) に stdio 接続とエラーマッピングを集約しています。`nix-versions` は 7 桁の短縮 SHA を返します。そのため gateway は Devbox v1 resolve API (`nix run nixpkgs#curl`) も呼び出し、pinned-input の `rev` に必要な 40 桁のフル SHA へ展開します。展開前に、短縮 SHA がフル SHA の prefix になっていることも検証します。
 
 `lnix-infra` は `lnix init` で使用されるテンプレートも同梱しています。
 
@@ -129,7 +129,7 @@ DevShellDefinition
 結果は 2 通りです:
 
 - **致命的エラー** — `ValidationError::EmptyTaskCommands(name)`。タスクの `commands` に要素が無いとき返り、パイプラインは `flake.nix` をレンダリングする前に停止します。
-- **非致命の診断** — `Diagnostic::NoPackages`。`stable` / `unstable` / `pinned` のいずれにも要素が無いときに返ります。`validate_config` はデータとして返し、`pipeline::load_config` が `UseCaseEvent::ConfigDiagnostic` として `ReporterPort` へ送出して実行は継続します。
+- **非致命の診断** — `Diagnostic::NoPackages`。`stable` / `unstable` / `pinned` のいずれにも要素が無いときに返ります。`validate_config` はデータとして返し、`pipeline::load_config` が `UseCaseEvent::ConfigDiagnostic` として `ReporterPort` へ渡して実行は継続します。
 
 追加の不変条件は他の箇所で強制されます:
 

@@ -277,11 +277,14 @@ Workflow:
    ```
 
 3. Run `lnix develop` (or `run`/`test`). LazyNix asks `nix-versions`
-   for the exact `nixpkgs` commit that ships the requested version,
-   then embeds that commit into the generated `flake.nix` as its
-   input URL. Subsequent runs reuse the commit encoded in `flake.nix`
-   and skip the resolver call — the `flake.nix` **is** the cache.
-   `lazynix.yaml` is never touched.
+   for the `nixpkgs` commit that ships the requested version (a
+   7-digit short SHA), expands it to the 40-digit full SHA via the
+   Devbox v1 resolve API, then embeds that full SHA into the
+   generated `flake.nix` as its input URL. Subsequent runs re-encode
+   the same `(name, version)` with the writer's naming scheme and
+   match it against the `url` / `buildInputs` lines already in
+   `flake.nix`, skipping the resolver call — the `flake.nix` **is**
+   the cache. `lazynix.yaml` is never touched.
 
 ### 🔤 Shell Aliases
 

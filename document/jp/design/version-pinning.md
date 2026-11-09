@@ -1,12 +1,14 @@
 # Design: Version Pinning (Issue #14)
 
 > **注記 (v0.4 以降)**: 以下は v1.0.0 当時 (廃止) の仕様である。
-> v0.4 以降、pinned の解決結果は生成される `flake.nix` に埋め込まれ、
-> それが真実の情報源 (SSoT) となる。`lazynix.yaml` への書き戻しは行わない。
-> 再実行時は `FlakeReader` ポートが `flake.nix` から `(commit, attr)` を
-> 復元し、キャッシュヒット時は resolver 呼び出しをスキップする。
-> pre-release 表記 (`1.0.0-rc1` など) の version は flake input 名の区切り
-> `-` と衝突するため cache 対象外 (毎回 resolver を呼ぶ)。
+> v0.4 以降、pinned の解決結果は生成される `flake.nix` に埋め込まれる。
+> それが真実の情報源 (SSoT) であり、`lazynix.yaml` への書き戻しは行わない。
+> 再実行時は `FlakeReader` ポートが既知の `(name, version)` を再符号化する。
+> `input_name` / `binding_name` と同じ規則で `flake.nix` の該当行を照合し、復号はしない。
+> rev が `CommitSha` (40 桁) としてパースできない行は drop され、再解決される。
+> pre-release 表記 (`1.0.0-rc1` など) の version も、この再符号化照合で cache が効く。
+> nix-versions が返す commit は 7 桁の短縮 SHA である。
+> Devbox v1 resolve API で 40 桁のフル SHA へ展開してから `flake.nix` へ埋め込む。
 > 詳細な本文は歴史的記録として残置している。
 
 ## Goal
@@ -182,9 +184,12 @@ pub struct PinnedPackageEntry {
 4. nix-versions を呼び出して解決:
    $ nix run github:vic/nix-versions -- --json --one '<name>@<version>'
    → { "installable": "nixpkgs/<commit>#<attr>" }
-5. resolvedCommit と resolvedAttr を lazynix.yaml に書き戻す (※v0.4 以降廃止 — flake.nix に埋め込む)
-6. flake.nix を生成 (pinned inputs を含む)
-7. nix develop を実行
+   (この commit は 7 桁の短縮 SHA)
+5. Devbox v1 resolve API を呼び出し、短縮 SHA を 40 桁のフル SHA へ
+   展開する。短縮 SHA がフル SHA の prefix であることも検証する
+6. resolvedCommit と resolvedAttr を lazynix.yaml に書き戻す (※v0.4 以降廃止 — flake.nix に埋め込む)
+7. flake.nix を生成 (pinned inputs を含む)
+8. nix develop を実行
 ```
 
 ### nix-versions 呼び出し仕様
@@ -206,8 +211,25 @@ nix run github:vic/nix-versions -- --json --one '<name>@<version>'
 ```
 
 `installable` フィールドから:
-- `nixpkgs/<commit>` → `resolvedCommit = "5ed6275"`
+- `nixpkgs/<commit>` → 短縮 SHA `"5ed6275"`
 - `#<attr>` → `resolvedAttr = "go_1_21"`
+
+### Devbox resolve 呼び出し仕様
+
+nix-versions が返す commit は 7 桁の短縮 SHA である。これは `flake.nix` の `rev` には使えない。Devbox v1 resolve API で 40 桁のフル SHA へ展開する。
+
+```bash
+nix run nixpkgs#curl -- -fsSL --max-time 10 -G \
+  --data-urlencode name=go --data-urlencode version=1.21.13 \
+  https://search.devbox.sh/v1/resolve
+```
+
+レスポンス例:
+```json
+{ "commit_hash": "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e", "name": "go" }
+```
+
+`commit_hash` を `resolvedCommit` とする。すでに 40 桁であれば、この呼び出し自体をスキップする。
 
 ### エラーケース
 
@@ -215,6 +237,9 @@ nix run github:vic/nix-versions -- --json --one '<name>@<version>'
 |------|------|
 | 完全一致バージョンが見つからない | エラー終了。利用可能なバージョンの確認に `lnix search` を案内 |
 | nix-versions が利用不可 | エラー終了。nix-versions のインストール状況を案内 |
+| Devbox resolve がタイムアウトする | エラー終了。stderr を含めて通知 |
+| Devbox resolve のレスポンスが不正 (JSON 不正・`commit_hash` 欠落・40 桁でない) | エラー終了。パース失敗の内容を通知 |
+| 短縮 SHA がフル SHA の prefix と一致しない | エラー終了。nix-versions と Devbox の不整合を通知 |
 | resolvedCommit が既に存在 | 再解決をスキップ (キャッシュとして利用) |
 
 ---
@@ -251,7 +276,9 @@ $ lnix search go --version ">=1.20" --json --one
 
 - `lnix develop`: pinned パッケージの解決ステップを追加
 - `lnix init`: テンプレートを新スキーマに更新
-- `lnix lint`: pinned パッケージも `nix eval` で name を検証し、未解決の pinned エントリはバージョン解決の可否も検証する (読み取り専用: `lazynix.yaml` は書き換えない)
+- `lnix lint`: pinned パッケージも `nix eval` で name を検証する
+  - 未解決の pinned エントリはバージョン解決の可否も検証する
+  - 読み取り専用であり、`lazynix.yaml` は書き換えない
 
 ---
 
@@ -263,7 +290,7 @@ $ lnix search go --version ">=1.20" --json --one
 - `generator.rs`: pinned inputs の生成ロジック追加
 - `config.rs` (validate): pinned パッケージのバリデーション追加
   - `name` が有効なパッケージ名であること
-  - `version` が空でないこと
+  - `version` が 1 文字以上であること
   - `resolvedCommit` と `resolvedAttr` はバリデーション対象外 (自動解決のため)
 
 ### `cli`
