@@ -81,7 +81,7 @@ fn resolve_pinned_packages(
         }
         let key = (entry.name.clone(), entry.version.clone());
         if let Some(resolution) = cached.remove(&key) {
-            entry.resolved_commit = Some(resolution.commit);
+            entry.resolved_commit = Some(resolution.commit.to_string());
             entry.resolved_attr = Some(resolution.attr);
             continue;
         }
@@ -90,7 +90,7 @@ fn resolve_pinned_packages(
             version: entry.version.clone(),
         });
         let resolved = deps.resolver.resolve(&entry.name, &entry.version)?;
-        entry.resolved_commit = Some(resolved.commit);
+        entry.resolved_commit = Some(resolved.commit.to_string());
         entry.resolved_attr = Some(resolved.attr);
     }
     Ok(())
@@ -126,6 +126,10 @@ mod tests {
     };
     use std::collections::HashMap;
 
+    const CACHED_SHA: &str = "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const RESOLVED_SHA: &str = "e607cb51abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const OVERRIDDEN_SHA: &str = "deafdeafdeafdeafdeafdeafdeafdeafdeafdeaf";
+
     fn config_with_pinned(entries: &[(&str, &str)]) -> DevShellDefinition {
         let mut yaml = String::from("devShell:\n  package:\n    stable: []\n    pinned:\n");
         for (name, version) in entries {
@@ -143,7 +147,7 @@ mod tests {
             inputs.insert(
                 (name.parse().unwrap(), version.parse().unwrap()),
                 PinnedResolution {
-                    commit: (*commit).to_string(),
+                    commit: commit.parse().unwrap(),
                     attr: (*attr).to_string(),
                 },
             );
@@ -154,7 +158,9 @@ mod tests {
     #[test]
     fn cache_hit_skips_resolver() {
         let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13")])).with_flake_reader(
-            MockFlakeReader::new(resolutions_from(&[("go", "1.21.13", "5ed6275", "go_1_21")])),
+            MockFlakeReader::new(resolutions_from(&[(
+                "go", "1.21.13", CACHED_SHA, "go_1_21",
+            )])),
         );
         let mut config = m.repo.read_config().unwrap();
 
@@ -162,7 +168,7 @@ mod tests {
 
         assert!(m.resolver.resolve_calls().is_empty());
         let pinned = &config.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("5ed6275"));
+        assert_eq!(pinned.resolved_commit.as_deref(), Some(CACHED_SHA));
         assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
     }
 
@@ -176,7 +182,7 @@ mod tests {
 
         assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
         let pinned = &config.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
+        assert_eq!(pinned.resolved_commit.as_deref(), Some(RESOLVED_SHA));
         assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
     }
 
@@ -211,7 +217,10 @@ mod tests {
             "devShell:\n  package:\n    stable: []\n    pinned:\n      - name: go\n        version: \"1.21.13\"\n        resolvedCommit: OLD\n        resolvedAttr: OLD\n",
         ))
         .with_flake_reader(MockFlakeReader::new(resolutions_from(&[(
-            "go", "1.21.13", "NEW_COMMIT", "NEW_ATTR",
+            "go",
+            "1.21.13",
+            OVERRIDDEN_SHA,
+            "NEW_ATTR",
         )])));
         let mut config = m.repo.read_config().unwrap();
 
@@ -219,7 +228,7 @@ mod tests {
 
         assert!(m.resolver.resolve_calls().is_empty());
         let pinned = &config.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("NEW_COMMIT"));
+        assert_eq!(pinned.resolved_commit.as_deref(), Some(OVERRIDDEN_SHA));
         assert_eq!(pinned.resolved_attr.as_deref(), Some("NEW_ATTR"));
     }
 
@@ -238,7 +247,7 @@ mod tests {
                 if version.as_str() == "1.0.0-rc1"
         )));
         let pinned = &config.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some("e607cb5"));
+        assert_eq!(pinned.resolved_commit.as_deref(), Some(RESOLVED_SHA));
     }
 
     #[test]
@@ -247,7 +256,7 @@ mod tests {
             .with_flake_reader(MockFlakeReader::new(resolutions_from(&[(
                 "go",
                 "1.21.13",
-                "5ed6275",
+                CACHED_SHA,
                 "go_1_21_cached",
             )])));
         let mut config = m.repo.read_config().unwrap();
@@ -256,10 +265,10 @@ mod tests {
 
         assert_eq!(m.resolver.resolve_calls(), vec!["rust".to_string()]);
         let go = &config.dev_shell.package.pinned[0];
-        assert_eq!(go.resolved_commit.as_deref(), Some("5ed6275"));
+        assert_eq!(go.resolved_commit.as_deref(), Some(CACHED_SHA));
         assert_eq!(go.resolved_attr.as_deref(), Some("go_1_21_cached"));
         let rust = &config.dev_shell.package.pinned[1];
-        assert_eq!(rust.resolved_commit.as_deref(), Some("e607cb5"));
+        assert_eq!(rust.resolved_commit.as_deref(), Some(RESOLVED_SHA));
         assert_eq!(rust.resolved_attr.as_deref(), Some("go_1_21"));
     }
 }

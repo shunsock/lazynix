@@ -33,4 +33,4 @@ pub use service::lint::{
     format_validation_result_verbose,
 };
 pub use service::task::interpolate_command;
-pub use values::{EnvVarName, PackageName, PackageVersion, RegistryUrl, TaskName};
+pub use values::{CommitSha, EnvVarName, PackageName, PackageVersion, RegistryUrl, TaskName};

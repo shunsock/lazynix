@@ -1,13 +1,13 @@
 //! Port for resolving package versions via the nix-versions registry.
 
 use crate::error::NixError;
-use crate::values::{PackageName, PackageVersion};
+use crate::values::{CommitSha, PackageName, PackageVersion};
 
 /// A pinned package resolved to a concrete nixpkgs commit and attribute.
 #[derive(Debug, Clone)]
 pub struct ResolvedVersion {
     /// The nixpkgs commit that provides the requested version.
-    pub commit: String,
+    pub commit: CommitSha,
     /// The package attribute at that commit (e.g. `go_1_21`).
     pub attr: String,
 }

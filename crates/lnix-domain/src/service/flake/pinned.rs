@@ -135,7 +135,7 @@ mod tests {
             r#"
 name: go
 version: "1.21.13"
-resolvedCommit: "e607cb5"
+resolvedCommit: "e607cb51abf1dac19bf39d6ff8c07c8c37e81e0e"
 resolvedAttr: "go_1_21"
 "#,
         )
@@ -181,7 +181,7 @@ resolvedAttr: "go_1_21"
 
         assert_eq!(
             inputs,
-            "    nixpkgs--go--1-21-13.url = \"github:NixOS/nixpkgs/e607cb5\";"
+            "    nixpkgs--go--1-21-13.url = \"github:NixOS/nixpkgs/e607cb51abf1dac19bf39d6ff8c07c8c37e81e0e\";"
         );
     }
 

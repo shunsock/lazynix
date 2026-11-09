@@ -224,7 +224,7 @@ impl VersionResolver for StubResolver {
             });
         }
         Ok(ResolvedVersion {
-            commit: "e607cb5".to_string(),
+            commit: "e607cb51abf1dac19bf39d6ff8c07c8c37e81e0e".parse().unwrap(),
             attr: "go_1_21".to_string(),
         })
     }
@@ -402,7 +402,7 @@ mod tests {
         inputs.insert(
             ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
             PinnedResolution {
-                commit: "5ed6275".into(),
+                commit: "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e".parse().unwrap(),
                 attr: "go_1_21".into(),
             },
         );

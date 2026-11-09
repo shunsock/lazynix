@@ -9,7 +9,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+    nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed627539ac84809c78b2dd6d26a5cebeb5ae269";
   };
 
   outputs = { self, nixpkgs, nixpkgs-unstable, flake-utils, nixpkgs--go--1-21-13 }:
