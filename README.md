@@ -196,7 +196,10 @@ described below.
 - `lint` validates `stable`, `unstable`, and `pinned` packages. For
   each `pinned` entry, `lint` also asks `nix-versions` whether the
   requested version can still be resolved, catching typos in the
-  version constraint before the next `lnix develop`.
+  version constraint before the next `lnix develop`. This check always
+  re-resolves through the resolver rather than reading the `flake.nix`
+  cache, so it may also reach the Devbox v1 resolve API on every
+  `lint` run.
 
 ## Configuration
 

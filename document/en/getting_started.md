@@ -259,7 +259,7 @@ devShell:
 
 Every developer on your team gets exactly Go 1.21.13, without any drift or repeated network lookups.
 
-> **Note:** `lnix lint` validates `stable`, `unstable`, **and** `pinned` packages. For each `pinned` entry, `lint` additionally asks `nix-versions` whether the requested version can still be resolved — so a typo in the version constraint is caught before the next `lnix develop`.
+> **Note:** `lnix lint` validates `stable`, `unstable`, **and** `pinned` packages. For each `pinned` entry, `lint` additionally asks `nix-versions` whether the requested version can still be resolved — so a typo in the version constraint is caught before the next `lnix develop`. This check bypasses the `flake.nix` cache, so it may also call the Devbox v1 resolve API on every `lint` run.
 
 ## Searching for Available Versions
 

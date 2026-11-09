@@ -180,13 +180,14 @@ pub struct PinnedPackageEntry {
 ```
 1. lazynix.yaml を読み込む
 2. pinned パッケージを走査
-3. resolvedCommit が未設定のエントリを検出
+3. resolvedCommit が未設定のエントリを検出 (※v0.4 以降廃止 — flake.nix の照合で判定)
 4. nix-versions を呼び出して解決:
    $ nix run github:vic/nix-versions -- --json --one '<name>@<version>'
    → { "installable": "nixpkgs/<commit>#<attr>" }
-   (この commit は 7 桁の短縮 SHA)
+   (この commit は 7 桁の短縮 SHA) (※現行仕様。v0.4 以降有効)
 5. Devbox v1 resolve API を呼び出し、短縮 SHA を 40 桁のフル SHA へ
    展開する。短縮 SHA がフル SHA の prefix であることも検証する
+   (※現行仕様。v0.4 以降有効)
 6. resolvedCommit と resolvedAttr を lazynix.yaml に書き戻す (※v0.4 以降廃止 — flake.nix に埋め込む)
 7. flake.nix を生成 (pinned inputs を含む)
 8. nix develop を実行
@@ -214,7 +215,7 @@ nix run github:vic/nix-versions -- --json --one '<name>@<version>'
 - `nixpkgs/<commit>` → 短縮 SHA `"5ed6275"`
 - `#<attr>` → `resolvedAttr = "go_1_21"`
 
-### Devbox resolve 呼び出し仕様
+### Devbox resolve 呼び出し仕様 (※現行仕様。v0.4 以降有効)
 
 nix-versions が返す commit は 7 桁の短縮 SHA である。これは `flake.nix` の `rev` には使えない。Devbox v1 resolve API で 40 桁のフル SHA へ展開する。
 
@@ -235,12 +236,12 @@ nix run nixpkgs#curl -- -fsSL --max-time 10 -G \
 
 | 状況 | 挙動 |
 |------|------|
-| 完全一致バージョンが見つからない | エラー終了。利用可能なバージョンの確認に `lnix search` を案内 |
+| 完全一致バージョンが見つからない | エラー終了。nix-versions のエラーメッセージ (stderr) を通知。exit 0 で要素が無い配列が返るときのみ `lnix search` を案内 |
 | nix-versions が利用不可 | エラー終了。nix-versions のインストール状況を案内 |
-| Devbox resolve がタイムアウトする | エラー終了。stderr を含めて通知 |
-| Devbox resolve のレスポンスが不正 (JSON 不正・`commit_hash` 欠落・40 桁でない) | エラー終了。パース失敗の内容を通知 |
-| 短縮 SHA がフル SHA の prefix と一致しない | エラー終了。nix-versions と Devbox の不整合を通知 |
-| resolvedCommit が既に存在 | 再解決をスキップ (キャッシュとして利用) |
+| Devbox resolve がタイムアウトする (※現行仕様。v0.4 以降有効) | エラー終了。stderr を含めて通知 |
+| Devbox resolve のレスポンスが不正 (JSON 不正・`commit_hash` 欠落・40 桁でない) (※現行仕様。v0.4 以降有効) | エラー終了。パース失敗の内容を通知 |
+| 短縮 SHA がフル SHA の prefix と一致しない (※現行仕様。v0.4 以降有効) | エラー終了。nix-versions と Devbox の不整合を通知 |
+| resolvedCommit が既に存在 (※v0.4 以降廃止 — flake.nix の照合で判定) | 再解決をスキップ (キャッシュとして利用) |
 
 ---
 
@@ -278,6 +279,8 @@ $ lnix search go --version ">=1.20" --json --one
 - `lnix init`: テンプレートを新スキーマに更新
 - `lnix lint`: pinned パッケージも `nix eval` で name を検証する
   - 未解決の pinned エントリはバージョン解決の可否も検証する
+  - この検証は `flake.nix` キャッシュを使わない (※現行仕様。v0.4 以降有効)
+  - そのため実行ごとに Devbox resolve API へ到達する場合がある
   - 読み取り専用であり、`lazynix.yaml` は書き換えない
 
 ---
