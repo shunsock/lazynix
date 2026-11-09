@@ -56,7 +56,7 @@ nix run github:shunsock/lazynix -- task fmt        # runs `uv run ruff format .`
 
 # Run a named task with CLI_ARGS forwarding
 nix run github:shunsock/lazynix -- task review tests/test_api.py::test_auth
-# expands to: uv run pytest tests/test_api.py::test_auth
+# expands to: uv run pytest 'tests/test_api.py::test_auth'
 
 # Run the whole test suite (both `test:` entries in order)
 nix run github:shunsock/lazynix -- test
