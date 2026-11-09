@@ -49,27 +49,21 @@ mod tests {
 
     #[test]
     fn inherit_returns_exit_code_of_failing_command() {
-        // Arrange
         let mut command = Command::new("sh");
         command.arg("-c").arg("exit 3");
 
-        // Act
         let code = run_inherit(command).unwrap();
 
-        // Assert
         assert_eq!(code, 3);
     }
 
     #[test]
     fn capture_collects_stdout_and_stderr() {
-        // Arrange
         let mut command = Command::new("sh");
         command.arg("-c").arg("echo out; echo err 1>&2");
 
-        // Act
         let captured = run_capture(command).unwrap();
 
-        // Assert
         assert!(captured.success);
         assert_eq!(captured.stdout, "out\n");
         assert_eq!(captured.stderr, "err\n");
@@ -77,27 +71,21 @@ mod tests {
 
     #[test]
     fn capture_reports_failure_without_erroring() {
-        // Arrange
         let mut command = Command::new("sh");
         command.arg("-c").arg("echo boom 1>&2; exit 1");
 
-        // Act
         let captured = run_capture(command).unwrap();
 
-        // Assert
         assert!(!captured.success);
         assert_eq!(captured.stderr, "boom\n");
     }
 
     #[test]
     fn spawn_failure_maps_to_nix_error() {
-        // Arrange
         let command = Command::new("definitely-not-a-real-binary-xyz");
 
-        // Act
         let result = run_capture(command);
 
-        // Assert
         assert!(matches!(result, Err(NixError::Spawn(_))));
     }
 }

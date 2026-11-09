@@ -55,40 +55,31 @@ mod tests {
 
     #[test]
     fn eval_succeeds_for_existing_package() {
-        // Arrange
         let package: PackageName = "hello".parse().unwrap();
 
-        // Act
         let outcome = SubprocessNixEvaluator.eval_package(&package, None).unwrap();
 
-        // Assert
         assert!(outcome.success, "stderr: {}", outcome.stderr);
     }
 
     #[test]
     fn eval_fails_for_nonexistent_package() {
-        // Arrange
         let package: PackageName = "nonexistent-pkg-xyz-12345".parse().unwrap();
 
-        // Act
         let outcome = SubprocessNixEvaluator.eval_package(&package, None).unwrap();
 
-        // Assert
         assert!(!outcome.success);
         assert!(outcome.stderr.contains("does not provide"));
     }
 
     #[test]
     fn eval_for_explicit_arch_completes() {
-        // Arrange
         let package: PackageName = "hello".parse().unwrap();
 
-        // Act
         let outcome = SubprocessNixEvaluator
             .eval_package(&package, Some("x86_64-linux"))
             .unwrap();
 
-        // Assert
         assert!(outcome.success || !outcome.stderr.is_empty());
     }
 }
