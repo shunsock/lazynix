@@ -7,7 +7,30 @@ use serde::Deserialize;
 
 use lnix_domain::{NixError, PackageName, PackageVersion};
 
-use crate::process::run_capture;
+use crate::process::{Captured, run_capture};
+
+/// Length of a full git commit SHA in lowercase hex digits.
+const FULL_SHA_HEX_LEN: usize = 40;
+
+/// Builds a `NixError::VersionResolution` for `spec` with `message`.
+///
+/// Shared by this module and [`super::version_resolver`] so the two
+/// fields are assembled in exactly one place.
+pub(crate) fn version_resolution_error(spec: &str, message: impl Into<String>) -> NixError {
+    NixError::VersionResolution {
+        spec: spec.to_string(),
+        message: message.into(),
+    }
+}
+
+/// Rejects `captured` if its subprocess exited non-zero, wrapping stderr
+/// into a `NixError::VersionResolution` for `spec`.
+pub(crate) fn ensure_success(spec: &str, captured: &Captured) -> Result<(), NixError> {
+    if captured.success {
+        return Ok(());
+    }
+    Err(version_resolution_error(spec, captured.stderr.clone()))
+}
 
 /// Builds `nix run nixpkgs#curl -- -fsSL -G ... https://search.devbox.sh/v1/resolve`.
 ///
@@ -22,6 +45,8 @@ fn curl_resolve_command(name: &PackageName, version: &PackageVersion) -> Command
         .arg("nixpkgs#curl")
         .arg("--")
         .arg("-fsSL")
+        .arg("--max-time")
+        .arg("10")
         .arg("-G")
         .arg("--data-urlencode")
         .arg(format!("name={}", name))
@@ -37,30 +62,32 @@ struct ResolveResponse {
     commit_hash: String,
 }
 
-/// Returns whether `s` is a 40-digit lowercase hex string (a full
-/// git commit SHA).
-fn is_full_sha(s: &str) -> bool {
-    s.len() == 40
-        && s.chars()
+/// Returns whether `commit` is a 40-digit lowercase hex string (a
+/// full git commit SHA).
+fn is_full_sha(commit: &str) -> bool {
+    commit.len() == FULL_SHA_HEX_LEN
+        && commit
+            .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
 /// Extracts `commit_hash` from a Devbox v1 resolve response body.
 fn parse_resolve_response(spec: &str, body: &str) -> Result<String, NixError> {
-    let response: ResolveResponse =
-        serde_json::from_str(body).map_err(|e| NixError::VersionResolution {
-            spec: spec.to_string(),
-            message: format!("failed to parse devbox resolve response: {}", e),
-        })?;
+    let response: ResolveResponse = serde_json::from_str(body).map_err(|e| {
+        version_resolution_error(
+            spec,
+            format!("failed to parse devbox resolve response: {}", e),
+        )
+    })?;
 
     if !is_full_sha(&response.commit_hash) {
-        return Err(NixError::VersionResolution {
-            spec: spec.to_string(),
-            message: format!(
-                "devbox resolve returned a non-40-digit-hex commit_hash: {}",
-                response.commit_hash
+        return Err(version_resolution_error(
+            spec,
+            format!(
+                "devbox resolve returned a non-{}-digit-hex commit_hash: {}",
+                FULL_SHA_HEX_LEN, response.commit_hash
             ),
-        });
+        ));
     }
 
     Ok(response.commit_hash)
@@ -71,16 +98,16 @@ fn parse_resolve_response(spec: &str, body: &str) -> Result<String, NixError> {
 /// NOTE: nix-versions and Devbox query distinct registries. Without
 /// this check they could silently agree on different commits.
 fn ensure_prefix_match(spec: &str, short: &str, full: &str) -> Result<(), NixError> {
-    if full.starts_with(short) {
+    if !short.is_empty() && full.starts_with(short) {
         return Ok(());
     }
-    Err(NixError::VersionResolution {
-        spec: spec.to_string(),
-        message: format!(
+    Err(version_resolution_error(
+        spec,
+        format!(
             "devbox resolved commit {} does not extend short commit {}",
             full, short
         ),
-    })
+    ))
 }
 
 /// Runs `command` to resolve `spec`'s `short_commit` to a full SHA.
@@ -90,12 +117,7 @@ fn expand_with(command: Command, spec: &str, short_commit: &str) -> Result<Strin
     }
 
     let captured = run_capture(command)?;
-    if !captured.success {
-        return Err(NixError::VersionResolution {
-            spec: spec.to_string(),
-            message: captured.stderr,
-        });
-    }
+    ensure_success(spec, &captured)?;
 
     let full = parse_resolve_response(spec, &captured.stdout)?;
     ensure_prefix_match(spec, short_commit, &full)?;
@@ -134,6 +156,18 @@ mod tests {
     }
 
     #[test]
+    fn builds_curl_command_with_a_max_time_bound() {
+        let name: PackageName = "go".parse().unwrap();
+        let version: PackageVersion = "1.21.13".parse().unwrap();
+
+        let command = curl_resolve_command(&name, &version);
+
+        let args: Vec<_> = command.get_args().map(|a| a.to_str().unwrap()).collect();
+        let i = args.iter().position(|a| *a == "--max-time").unwrap();
+        assert_eq!(args[i + 1], "10");
+    }
+
+    #[test]
     fn parses_commit_hash_from_resolve_response() {
         let body = r#"{"commit_hash":"5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e","name":"go"}"#;
 
@@ -154,10 +188,7 @@ mod tests {
 
         for body in bodies {
             let result = parse_resolve_response("go@1.21.13", body);
-            assert!(
-                matches!(result, Err(NixError::VersionResolution { .. })),
-                "should reject {body:?}"
-            );
+            assert!(matches!(result, Err(NixError::VersionResolution { .. })));
         }
     }
 
@@ -173,18 +204,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_empty_short_commit_even_if_full_sha_would_match() {
+        // NOTE: any full string trivially starts_with(""), so a
+        // short placeholder suffices to exercise the guard.
+        let result = ensure_prefix_match("go@1.21.13", "", "deadbeef");
+
+        assert!(matches!(result, Err(NixError::VersionResolution { .. })));
+    }
+
+    #[test]
     fn expand_with_wraps_stderr_on_nonzero_exit() {
         let mut command = Command::new("sh");
         command.arg("-c").arg("echo boom 1>&2; exit 22");
 
         let result = expand_with(command, "go@1.21.13", "5ed6275");
 
-        match result {
-            Err(NixError::VersionResolution { message, .. }) => {
-                assert!(message.contains("boom"));
-            }
-            other => panic!("expected VersionResolution, got {other:?}"),
-        }
+        assert!(result.unwrap_err().to_string().contains("boom"));
     }
 
     #[test]

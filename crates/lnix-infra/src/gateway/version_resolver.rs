@@ -7,7 +7,7 @@ use serde::Deserialize;
 use lnix_domain::interface::gateway::{ResolvedVersion, VersionResolver};
 use lnix_domain::{NixError, PackageName, PackageVersion};
 
-use super::devbox;
+use super::devbox::{self, ensure_success, version_resolution_error};
 use crate::process::run_capture;
 
 /// One entry of nix-versions' `--json` output.
@@ -38,27 +38,61 @@ fn nix_versions() -> Command {
 
 /// Splits `nixpkgs/<commit>#<attr>` into its parts.
 fn parse_installable(spec: &str, installable: &str) -> Result<ParsedInstallable, NixError> {
-    let rest = installable
-        .strip_prefix("nixpkgs/")
-        .ok_or_else(|| NixError::VersionResolution {
-            spec: spec.to_string(),
-            message: format!(
+    let rest = installable.strip_prefix("nixpkgs/").ok_or_else(|| {
+        version_resolution_error(
+            spec,
+            format!(
                 "unexpected installable format (missing nixpkgs/ prefix): {}",
                 installable
             ),
-        })?;
+        )
+    })?;
     let (commit, attr) = rest
         .split_once('#')
-        .ok_or_else(|| NixError::VersionResolution {
-            spec: spec.to_string(),
-            message: format!(
-                "unexpected installable format (missing # separator): {}",
-                installable
-            ),
+        .filter(|(commit, _)| !commit.is_empty())
+        .ok_or_else(|| {
+            version_resolution_error(
+                spec,
+                format!(
+                    "unexpected installable format (missing # separator or empty commit): {}",
+                    installable
+                ),
+            )
         })?;
     Ok(ParsedInstallable {
         commit: commit.to_string(),
         attr: attr.to_string(),
+    })
+}
+
+/// Parses nix-versions' `--json` `stdout`, expands the resolved
+/// short commit via [`devbox::expand_to_full_sha`], and assembles the
+/// `ResolvedVersion` for `spec`.
+///
+/// Separated from [`NixVersionsResolver::resolve`] so the parse →
+/// expand → assemble pipeline is testable without a subprocess, the
+/// same injectable shape as [`devbox`]'s `expand_with`.
+fn assemble_resolved_version(
+    spec: &str,
+    name: &PackageName,
+    version: &PackageVersion,
+    stdout: &str,
+) -> Result<ResolvedVersion, NixError> {
+    let entries: Vec<NixVersionEntry> = serde_json::from_str(stdout).map_err(|e| {
+        version_resolution_error(spec, format!("failed to parse nix-versions output: {}", e))
+    })?;
+    let entry = entries.into_iter().next().ok_or_else(|| {
+        version_resolution_error(
+            spec,
+            format!("no version found. Use 'lnix search {}' first", name),
+        )
+    })?;
+
+    let parsed = parse_installable(spec, &entry.installable)?;
+    let commit = devbox::expand_to_full_sha(spec, name, version, &parsed.commit)?;
+    Ok(ResolvedVersion {
+        commit,
+        attr: parsed.attr,
     })
 }
 
@@ -73,40 +107,17 @@ impl VersionResolver for NixVersionsResolver {
         command.arg("--json").arg("--one").arg(&spec);
 
         let captured = run_capture(command)?;
-        if !captured.success {
-            return Err(NixError::VersionResolution {
-                spec,
-                message: captured.stderr,
-            });
-        }
+        ensure_success(&spec, &captured)?;
 
-        let entries: Vec<NixVersionEntry> =
-            serde_json::from_str(&captured.stdout).map_err(|e| NixError::VersionResolution {
-                spec: spec.clone(),
-                message: format!("failed to parse nix-versions output: {}", e),
-            })?;
-        let entry = entries
-            .into_iter()
-            .next()
-            .ok_or_else(|| NixError::VersionResolution {
-                spec: spec.clone(),
-                message: format!("no version found. Use 'lnix search {}' first", name),
-            })?;
-
-        let parsed = parse_installable(&spec, &entry.installable)?;
-        let commit = devbox::expand_to_full_sha(&spec, name, version, &parsed.commit)?;
-        Ok(ResolvedVersion {
-            commit,
-            attr: parsed.attr,
-        })
+        assemble_resolved_version(&spec, name, version, &captured.stdout)
     }
 
     fn search(
         &self,
         name: &PackageName,
         version_constraint: Option<&str>,
-        json: bool,
-        one: bool,
+        as_json: bool,
+        only_first: bool,
     ) -> Result<String, NixError> {
         let spec = match version_constraint {
             Some(constraint) => format!("{}@{}", name, constraint),
@@ -114,19 +125,14 @@ impl VersionResolver for NixVersionsResolver {
         };
 
         let mut command = nix_versions();
-        command.arg(if json { "--json" } else { "--text" });
-        if one {
+        command.arg(if as_json { "--json" } else { "--text" });
+        if only_first {
             command.arg("--one");
         }
         command.arg(&spec);
 
         let captured = run_capture(command)?;
-        if !captured.success {
-            return Err(NixError::VersionResolution {
-                spec,
-                message: captured.stderr,
-            });
-        }
+        ensure_success(&spec, &captured)?;
         Ok(captured.stdout)
     }
 }
@@ -155,5 +161,25 @@ mod tests {
         let result = parse_installable("go@1.21.13", "nixpkgs/5ed6275");
 
         assert!(matches!(result, Err(NixError::VersionResolution { .. })));
+    }
+
+    #[test]
+    fn rejects_installable_with_empty_commit_segment() {
+        let result = parse_installable("go@1.21.13", "nixpkgs/#go_1_21");
+
+        assert!(matches!(result, Err(NixError::VersionResolution { .. })));
+    }
+
+    #[test]
+    fn assembles_resolved_version_preserving_attr_through_expansion() {
+        let name: PackageName = "go".parse().unwrap();
+        let version: PackageVersion = "1.21.13".parse().unwrap();
+        let full = "5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+        let stdout = format!(r#"[{{"installable":"nixpkgs/{}#go_1_21"}}]"#, full);
+
+        let resolved = assemble_resolved_version("go@1.21.13", &name, &version, &stdout).unwrap();
+
+        assert_eq!(resolved.commit, full);
+        assert_eq!(resolved.attr, "go_1_21");
     }
 }
