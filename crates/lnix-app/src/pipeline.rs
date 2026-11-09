@@ -5,7 +5,7 @@
 //! each use-case only adds its own tail (entering the shell, running
 //! tests, executing a command).
 
-use lnix_domain::{render_flake, DevShellDefinition};
+use lnix_domain::{DevShellDefinition, render_flake};
 
 use crate::deps::Deps;
 use crate::error::ApplicationError;
