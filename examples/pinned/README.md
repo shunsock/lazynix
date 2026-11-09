@@ -44,11 +44,14 @@ nix run github:shunsock/lazynix -- develop
 
 When you invoke `lnix develop` and no `flake.nix` exists, `lazynix` uses
 [`nix-versions`](https://lazamar.github.io/download-specific-package-version-with-nix/)
-to look up the exact nixpkgs commit that provides the requested version, then
-embeds that commit into the generated `flake.nix` as its input URL. Subsequent
-runs reuse the commit baked into `flake.nix` and skip the resolver call, so
-the pin remains reproducible even if the upstream index changes.
-`lazynix.yaml` is never mutated.
+to look up the nixpkgs commit that provides the requested version. That
+commit comes back as a 7-digit short SHA, so `lazynix` expands it to the
+40-digit full SHA via the Devbox v1 resolve API, then embeds the full SHA
+into the generated `flake.nix` as its input URL. Subsequent runs re-encode
+the same `(name, version)` with the same naming scheme used to write
+`flake.nix` and match it against the existing `url` / `buildInputs` lines
+by name — no decoding — so the pin remains reproducible even if the
+upstream index changes. `lazynix.yaml` is never mutated.
 
 ## References
 

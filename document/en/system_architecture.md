@@ -14,7 +14,7 @@ crates/
   lnix-infra/    # Library: adapters — filesystem, nix subprocess, nix-versions
 ```
 
-The design follows a hexagonal ("ports and adapters") layout. `lnix-domain` is the innermost layer and performs no I/O. `lnix-app` orchestrates use-cases by talking only to traits (ports) that live in `lnix-domain`. `lnix-infra` supplies the concrete adapters, and the `lnix` binary is the composition root that wires everything together.
+The design follows a hexagonal ("ports and adapters") layout. `lnix-domain` is the innermost layer and performs no I/O. `lnix-app` orchestrates use-cases by talking only to traits (ports) that live in `lnix-domain`. `lnix-infra` supplies the concrete adapters, and the `lnix` binary is the composition root that connects everything together.
 
 ## Crates
 
@@ -50,7 +50,7 @@ Use-cases never assemble UI copy. They emit progress as `UseCaseEvent` values �
 
 The flake-generating use-cases (`develop`, `test`, `run`) share a common prefix defined in `pipeline.rs`:
 
-1. `load_config` — read settings, read `lazynix.yaml`, run `validate_config` (diagnostics are emitted as `UseCaseEvent::ConfigDiagnostic`), check that referenced dotenv files exist, then resolve any pinned packages. Resolutions are embedded in the generated `flake.nix` and `lazynix.yaml` is never rewritten; on later runs the `FlakeReader` port recovers `(commit, attr)` from `flake.nix` and cache hits skip the resolver.
+1. `load_config` — read settings, read `lazynix.yaml`, run `validate_config` (diagnostics are emitted as `UseCaseEvent::ConfigDiagnostic`), check that referenced dotenv files exist, then resolve any pinned packages. Resolutions are embedded in the generated `flake.nix` and `lazynix.yaml` is never rewritten; on later runs the `FlakeReader` port re-encodes the known `(name, version)` pair using the same rules as `input_name` / `binding_name` and matches it against the corresponding lines in `flake.nix` (it never decodes), so a cache hit skips the resolver.
 2. `write_flake` — call `lnix_domain::render_flake` and write the result to `./flake.nix`.
 3. `maybe_update_lock` — call `NixRunner::flake_update` when `--update` was requested.
 
@@ -76,7 +76,7 @@ Four sub-modules divide the domain:
 Every trait declared in `lnix_domain::interface` gets an implementation here:
 
 - `persistence/` — filesystem adapters (`ConfigRepository`, `FlakeWriter`, `EnvFilePresenceChecker`, `ProjectScaffolder`). All paths are anchored to `WorkspacePaths` so no adapter reads the current working directory implicitly.
-- `gateway/` — subprocess adapters that call `nix` and `nix-versions`. Two private helpers (`run_inherit` for interactive commands, `run_capture` for evaluated output) keep stdio wiring and error mapping in one place.
+- `gateway/` — subprocess adapters that call `nix` and `nix-versions`. Two private helpers (`run_inherit` for interactive commands, `run_capture` for evaluated output) keep stdio connections and error mapping in one place. `nix-versions` returns a 7-digit short commit SHA, so the gateway also calls the Devbox v1 resolve API (`nix run nixpkgs#curl`) to expand it into the 40-digit full SHA a pinned-input `rev` requires, verifying the short SHA is a prefix of the resolved full SHA before returning.
 
 `lnix-infra` also bundles the templates used by `lnix init`.
 
