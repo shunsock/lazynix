@@ -254,7 +254,10 @@ pub(crate) struct MockFlakeReader {
 }
 
 impl FlakeReader for MockFlakeReader {
-    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError> {
+    fn read_pinned_inputs(
+        &self,
+        _known: &[(PackageName, PackageVersion)],
+    ) -> Result<PinnedResolutions, FlakeError> {
         *self.read_calls.borrow_mut() += 1;
         if self.should_fail {
             return Err(FlakeError::Read(std::io::Error::other(
@@ -408,15 +411,15 @@ mod tests {
         );
         let reader = MockFlakeReader::new(inputs.clone());
 
-        assert_eq!(reader.read_pinned_inputs().unwrap(), inputs);
+        assert_eq!(reader.read_pinned_inputs(&[]).unwrap(), inputs);
     }
 
     #[test]
     fn mock_flake_reader_records_read_calls() {
         let reader = MockFlakeReader::empty();
 
-        let _ = reader.read_pinned_inputs();
-        let _ = reader.read_pinned_inputs();
+        let _ = reader.read_pinned_inputs(&[]);
+        let _ = reader.read_pinned_inputs(&[]);
 
         assert_eq!(reader.read_calls(), 2);
     }
@@ -427,6 +430,6 @@ mod tests {
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        assert!(m.flake_reader.read_pinned_inputs().unwrap().is_empty());
+        assert!(m.flake_reader.read_pinned_inputs(&[]).unwrap().is_empty());
     }
 }

@@ -11,7 +11,7 @@ use std::{collections::HashMap, fs};
 
 use lnix_domain::interface::persistence::{FlakeReader, PinnedResolution, PinnedResolutions};
 use lnix_domain::service::flake::pinned::{
-    PINNED_BINDING_PREFIX, PINNED_INPUT_PREFIX, PINNED_INPUT_URL_SUFFIX, PINNED_URL_COMMIT_PREFIX,
+    PINNED_INPUT_URL_SUFFIX, PINNED_URL_COMMIT_PREFIX, binding_name, input_name,
 };
 use lnix_domain::{CommitSha, FlakeError, PackageName, PackageVersion};
 
@@ -30,56 +30,55 @@ impl FsFlakeReader {
 }
 
 impl FlakeReader for FsFlakeReader {
-    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError> {
+    fn read_pinned_inputs(
+        &self,
+        known: &[(PackageName, PackageVersion)],
+    ) -> Result<PinnedResolutions, FlakeError> {
         let Ok(contents) = fs::read_to_string(self.paths.flake_file()) else {
             return Ok(HashMap::new());
         };
-        Ok(parse_pinned_inputs(&contents))
+        Ok(parse_pinned_inputs(&contents, known))
     }
 }
 
-fn parse_pinned_inputs(contents: &str) -> PinnedResolutions {
-    let mut commits = collect_commits(contents);
+/// Re-encodes each `known` key with the writer's naming scheme and
+/// looks for the matching lines, rather than decoding the flake's own
+/// names.
+fn parse_pinned_inputs(
+    contents: &str,
+    known: &[(PackageName, PackageVersion)],
+) -> PinnedResolutions {
     let mut resolutions = HashMap::new();
-    for line in contents.lines() {
-        let Some((key, attr)) = parse_attr_line(line, &commits) else {
+    for (name, version) in known {
+        let Some(commit) = find_commit(contents, &input_name(name, version)) else {
             continue;
         };
-        let commit = commits
-            .remove(&key)
-            .expect("commit present by construction");
-        resolutions.insert(key, PinnedResolution { commit, attr });
+        let Some(attr) = find_attr(contents, &binding_name(name, version)) else {
+            continue;
+        };
+        resolutions.insert(
+            (name.clone(), version.clone()),
+            PinnedResolution { commit, attr },
+        );
     }
     resolutions
 }
 
-fn collect_commits(contents: &str) -> HashMap<(PackageName, PackageVersion), CommitSha> {
-    let mut commits = HashMap::new();
-    for line in contents.lines() {
-        if let Some((key, commit)) = parse_url_line(line) {
-            commits.insert(key, commit);
-        }
-    }
-    commits
-}
-
-/// Parses a pinned-input `.url = "..."` line into its `(name, version)`
-/// key and commit.
+/// Finds the `<input>.url = "github:NixOS/nixpkgs/<commit>"` line and
+/// parses its commit.
 ///
 /// A commit that fails to parse as a [`CommitSha`] (e.g. nix-versions'
 /// 7-digit short SHA, left over from before full-SHA expansion was
 /// required) is dropped rather than cached, so the caller re-resolves
 /// it from scratch instead of pinning an input to an ambiguous rev.
-fn parse_url_line(line: &str) -> Option<((PackageName, PackageVersion), CommitSha)> {
-    let after_input_prefix = line.trim_start().strip_prefix(PINNED_INPUT_PREFIX)?;
-    let (name_and_version, after_dot_url) =
-        after_input_prefix.split_once(PINNED_INPUT_URL_SUFFIX)?;
-    let (name_str, dashed_version) = split_name_and_version(name_and_version)?;
-    let quoted_value = extract_quoted_url(after_dot_url)?;
-    let commit = quoted_value.strip_prefix(PINNED_URL_COMMIT_PREFIX)?;
-    let commit = commit.parse::<CommitSha>().ok()?;
-    let key = build_key(name_str, dashed_version)?;
-    Some((key, commit))
+fn find_commit(contents: &str, input: &str) -> Option<CommitSha> {
+    contents.lines().find_map(|line| {
+        let rest = line.trim_start().strip_prefix(input)?;
+        let after_suffix = rest.strip_prefix(PINNED_INPUT_URL_SUFFIX)?;
+        let quoted_value = extract_quoted_url(after_suffix)?;
+        let commit = quoted_value.strip_prefix(PINNED_URL_COMMIT_PREFIX)?;
+        commit.parse::<CommitSha>().ok()
+    })
 }
 
 fn extract_quoted_url(after_dot_url: &str) -> Option<&str> {
@@ -89,68 +88,19 @@ fn extract_quoted_url(after_dot_url: &str) -> Option<&str> {
     Some(url)
 }
 
-fn parse_attr_line(
-    line: &str,
-    commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
-) -> Option<((PackageName, PackageVersion), String)> {
-    let trimmed = line.trim();
-    let rest = trimmed.strip_prefix(PINNED_BINDING_PREFIX)?;
-    let (name_and_version, attr_tail) = rest.split_once('.')?;
-    let key = match_known_key(name_and_version, commits)?;
-    let attr: String = attr_tail
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-        .collect();
-    if attr.is_empty() {
-        return None;
-    }
-    Some((key, attr))
-}
-
-/// Finds the `(name, version)` key whose binding-name encoding matches
-/// `name_and_version`.
-///
-/// `HashMap::keys()` order varies by process (it is seeded per run), so
-/// scanning it directly would make the attribution of a binding-name
-/// collision non-deterministic. We sort the keys first so that a
-/// collision is always resolved to the same, lexicographically first
-/// key.
-///
-/// WHITELIST: a collision can only occur when two configured
-/// `(name, version)` pairs encode to the same binding name (e.g. `go` +
-/// `1.21.13` and `go-1` + `21.13` both encode to `go-1-21-13`). Config
-/// validation rejects pinned entries that would collide, so production
-/// `flake.nix` files never reach this branch; the deterministic
-/// tie-break only matters for malformed input.
-fn match_known_key(
-    name_and_version: &str,
-    commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
-) -> Option<(PackageName, PackageVersion)> {
-    let mut sorted_keys: Vec<&(PackageName, PackageVersion)> = commits.keys().collect();
-    sorted_keys.sort_by_key(|(name, version)| (name.as_str(), version.as_str()));
-    for (name, version) in sorted_keys {
-        let expected = format!("{}-{}", name.as_str(), version.as_str().replace('.', "-"));
-        if expected == name_and_version {
-            return Some((name.clone(), version.clone()));
-        }
-    }
-    None
-}
-
-/// Splits `name-and-dashed-version` at the `--` separator emitted by
-/// the writer. Callers rely on `PackageName` rejecting names that
-/// themselves contain `--` so this split is unambiguous.
-fn split_name_and_version(name_and_version: &str) -> Option<(&str, &str)> {
-    name_and_version.split_once("--")
-}
-
-fn build_key(name_str: &str, dashed_version: &str) -> Option<(PackageName, PackageVersion)> {
-    let name = name_str.parse::<PackageName>().ok()?;
-    let version = dashed_version
-        .replace('-', ".")
-        .parse::<PackageVersion>()
-        .ok()?;
-    Some((name, version))
+// NOTE: 衝突設定の拒否は validate_config の責務。reader は一意性を仮定する。
+/// Finds the `buildInputs` attribute suffix for the `<binding>.<attr>`
+/// line.
+fn find_attr(contents: &str, binding: &str) -> Option<String> {
+    contents.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix(binding)?;
+        let after_dot = rest.strip_prefix('.')?;
+        let attr: String = after_dot
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        (!attr.is_empty()).then_some(attr)
+    })
 }
 
 #[cfg(test)]
@@ -171,6 +121,10 @@ mod tests {
         (name.parse().unwrap(), version.parse().unwrap())
     }
 
+    fn known(pairs: &[(&str, &str)]) -> Vec<(PackageName, PackageVersion)> {
+        pairs.iter().map(|(n, v)| key(n, v)).collect()
+    }
+
     fn resolution(commit: &str, attr: &str) -> PinnedResolution {
         PinnedResolution {
             commit: commit.parse().unwrap(),
@@ -184,6 +138,7 @@ mod tests {
     const SHA_GO_TASK: &str = "3d464701abf1dac19bf39d6ff8c07c8c37e81e0e";
     const SHA_RUST: &str = "abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
     const SHA_URL: &str = "deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const SHA_DOTNET: &str = "cafefeedabf1dac19bf39d6ff8c07c8c37e81e0e";
 
     // NOTE: the reader matches lines by prefix, so fixtures need
     // only the matched lines, not a structurally valid flake.nix.
@@ -204,12 +159,19 @@ pinnedPkgs-go-1-21-13.go_1_21
 pinnedPkgs-rust-1-70-0.rustc
 "#;
 
+    const HYPHENATED_VERSION_FLAKE: &str = r#"
+nixpkgs--dotnet-sdk_11--11-0-100-preview-7-26381-103.url = "github:NixOS/nixpkgs/cafefeedabf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-dotnet-sdk_11-11-0-100-preview-7-26381-103.dotnet-sdk_11
+"#;
+
     #[test]
     fn reads_single_pinned_entry() {
         let dir = TempDir::new().unwrap();
         write_flake(&dir, SINGLE_GO_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -221,10 +183,30 @@ pinnedPkgs-rust-1-70-0.rustc
         let dir = TempDir::new().unwrap();
         write_flake(&dir, HYPHENATED_ATTR_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go-task", "3.48.0")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go-task", "3.48.0"), resolution(SHA_GO_TASK, "go-task"));
+        assert_eq!(inputs, expected);
+    }
+
+    #[test]
+    fn round_trips_a_hyphenated_version_via_known_keys() {
+        let dir = TempDir::new().unwrap();
+        write_flake(&dir, HYPHENATED_VERSION_FLAKE);
+        let pinned = [("dotnet-sdk_11", "11.0.100-preview.7.26381.103")];
+
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&pinned))
+            .unwrap();
+
+        let mut expected = HashMap::new();
+        expected.insert(
+            key("dotnet-sdk_11", "11.0.100-preview.7.26381.103"),
+            resolution(SHA_DOTNET, "dotnet-sdk_11"),
+        );
         assert_eq!(inputs, expected);
     }
 
@@ -241,7 +223,9 @@ pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("broken", "0.0.0"), ("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -260,7 +244,9 @@ flake-utils.url = "github:numtide/flake-utils";
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -275,7 +261,9 @@ nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -290,7 +278,9 @@ pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -299,7 +289,9 @@ pinnedPkgs-go-1-21-13.go_1_21
     fn returns_empty_map_when_flake_missing() {
         let dir = TempDir::new().unwrap();
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -309,7 +301,9 @@ pinnedPkgs-go-1-21-13.go_1_21
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("flake.nix")).unwrap();
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -319,7 +313,9 @@ pinnedPkgs-go-1-21-13.go_1_21
         let dir = TempDir::new().unwrap();
         write_flake(&dir, TWO_PINNED_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13"), ("rust", "1.70.0")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -338,7 +334,9 @@ pinnedPkgs-urlHelper-1-0-0.urlHelper
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("urlHelper", "1.0.0")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("urlHelper", "1.0.0"), resolution(SHA_URL, "urlHelper"));
@@ -356,28 +354,11 @@ pinnedPkgs-go-1-21-13.go_1_21
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
-    }
-
-    #[test]
-    fn attributes_colliding_binding_name_to_the_lexicographically_first_key() {
-        let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-nixpkgs--go-1--21-13.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
-pinnedPkgs-go-1-21-13.go_1_21
-"#,
-        );
-
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
-
-        let mut expected = HashMap::new();
-        expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
-        assert_eq!(inputs, expected);
     }
 
     #[test]
@@ -391,7 +372,9 @@ pinnedPkgs-go-1-21-13.go_1_21;
 "#,
         );
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));

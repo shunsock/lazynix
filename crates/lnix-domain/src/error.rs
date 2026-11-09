@@ -56,16 +56,35 @@ pub enum ValidationError {
     )]
     InvalidPinnedVersionCharacters { name: String, version: String },
 
+    // CONSTRAINT: このバリアントはポインタ1語分に留めなければならない。
+    // REASON: Stringを5つ内包すると result_large_err 閾値を超えるため。
     #[error(
-        "Pinned packages ('{first_name}', '{first_version}') and ('{second_name}', '{second_version}') both encode to the flake input name '{encoded}'; use a distinct name or version"
+        "Pinned packages ('{fname}', '{fver}') and ('{sname}', '{sver}') both encode to the flake input name '{enc}'; use a distinct name or version",
+        fname = .0.first_name, fver = .0.first_version,
+        sname = .0.second_name, sver = .0.second_version, enc = .0.encoded
     )]
-    PinnedInputNameCollision {
-        first_name: String,
-        first_version: String,
-        second_name: String,
-        second_version: String,
-        encoded: String,
-    },
+    PinnedInputNameCollision(Box<PinnedNameCollision>),
+
+    #[error(
+        "Pinned packages ('{fname}', '{fver}') and ('{sname}', '{sver}') both encode to the flake let-binding name '{enc}'; use a distinct name or version",
+        fname = .0.first_name, fver = .0.first_version,
+        sname = .0.second_name, sver = .0.second_version, enc = .0.encoded
+    )]
+    PinnedBindingNameCollision(Box<PinnedNameCollision>),
+}
+
+/// The two pinned `(name, version)` pairs that encoded to the same flake
+/// identifier, plus the shared encoded value they collided on.
+///
+/// Boxed inside [`ValidationError`] to keep that enum's size small; see
+/// the `CONSTRAINT` note on the variants that hold it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinnedNameCollision {
+    pub first_name: String,
+    pub first_version: String,
+    pub second_name: String,
+    pub second_version: String,
+    pub encoded: String,
 }
 
 /// Non-fatal finding from [`crate::validate_config`].

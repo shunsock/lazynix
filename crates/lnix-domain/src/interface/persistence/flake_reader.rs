@@ -29,10 +29,18 @@ pub type PinnedResolutions = HashMap<(PackageName, PackageVersion), PinnedResolu
 /// returns an empty map (or drops the malformed entry) and the caller
 /// falls back to the resolver.
 pub trait FlakeReader {
-    /// Returns a map from `(name, version)` to its [`PinnedResolution`].
+    /// Returns a map from `(name, version)` to its [`PinnedResolution`],
+    /// restricted to the `known` keys supplied by the caller.
     ///
-    /// Only entries whose input line and `buildInputs` line are both
-    /// present in the flake are included; partially-recovered entries
-    /// are dropped so the caller re-resolves them from scratch.
-    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError>;
+    /// `known` is the pinned `(name, version)` list from `lazynix.yaml`.
+    /// The implementation re-encodes each key with the same naming
+    /// scheme the writer uses and looks for the matching lines in
+    /// `flake.nix`, rather than decoding the flake's own names; only
+    /// entries whose input line and `buildInputs` line are both present
+    /// are included, and partially-recovered entries are dropped so the
+    /// caller re-resolves them from scratch.
+    fn read_pinned_inputs(
+        &self,
+        known: &[(PackageName, PackageVersion)],
+    ) -> Result<PinnedResolutions, FlakeError>;
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::definition::dev_shell::DevShellDefinition;
-use crate::error::{Diagnostic, ValidationError};
-use crate::service::flake::pinned::input_name;
+use crate::error::{Diagnostic, PinnedNameCollision, ValidationError};
+use crate::service::flake::pinned::{binding_name, input_name};
 
 /// Checks cross-field constraints that value objects cannot express.
 ///
@@ -32,7 +32,12 @@ pub fn validate_config(config: &DevShellDefinition) -> Result<Vec<Diagnostic>, V
         }
     }
 
-    reject_colliding_pinned_input_names(&config.dev_shell.package.pinned)?;
+    reject_colliding_pinned_names(&config.dev_shell.package.pinned, input_name, |c| {
+        ValidationError::PinnedInputNameCollision(Box::new(c))
+    })?;
+    reject_colliding_pinned_names(&config.dev_shell.package.pinned, binding_name, |c| {
+        ValidationError::PinnedBindingNameCollision(Box::new(c))
+    })?;
 
     let mut diagnostics = Vec::new();
     let package = &config.dev_shell.package;
@@ -51,22 +56,24 @@ fn is_allowed_version_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')
 }
 
-/// Rejects pinned entries whose (name, version) encode to the same
-/// flake input name, since `flake.nix` cannot declare the input twice.
-fn reject_colliding_pinned_input_names(
+// CONSTRAINT: 両エンコードの衝突を拒否しなければならない。
+// REASON: binding は input より区切り文字が少なく別に衝突しうる。
+fn reject_colliding_pinned_names(
     pinned: &[crate::PinnedPackageEntry],
+    encode: impl Fn(&crate::PackageName, &crate::PackageVersion) -> String,
+    make_error: impl Fn(PinnedNameCollision) -> ValidationError,
 ) -> Result<(), ValidationError> {
     let mut seen: HashMap<String, &crate::PinnedPackageEntry> = HashMap::new();
     for entry in pinned {
-        let encoded = input_name(&entry.name, &entry.version);
+        let encoded = encode(&entry.name, &entry.version);
         if let Some(first) = seen.get(&encoded) {
-            return Err(ValidationError::PinnedInputNameCollision {
+            return Err(make_error(PinnedNameCollision {
                 first_name: first.name.as_str().to_string(),
                 first_version: first.version.as_str().to_string(),
                 second_name: entry.name.as_str().to_string(),
                 second_version: entry.version.as_str().to_string(),
                 encoded,
-            });
+            }));
         }
         seen.insert(encoded, entry);
     }
@@ -127,14 +134,14 @@ mod tests {
         sname: &str,
         sver: &str,
         encoded: &str,
-    ) -> ValidationError {
-        ValidationError::PinnedInputNameCollision {
+    ) -> Box<PinnedNameCollision> {
+        Box::new(PinnedNameCollision {
             first_name: fname.into(),
             first_version: fver.into(),
             second_name: sname.into(),
             second_version: sver.into(),
             encoded: encoded.into(),
-        }
+        })
     }
 
     #[test]
@@ -159,9 +166,26 @@ mod tests {
             let config = parse(&pinned_yaml(&[(n1, v1), (n2, v2)]));
             assert_eq!(
                 validate_config(&config).unwrap_err(),
-                collision(n1, v1, n2, v2, encoded)
+                ValidationError::PinnedInputNameCollision(collision(n1, v1, n2, v2, encoded))
             );
         }
+    }
+
+    #[test]
+    fn rejects_colliding_pinned_binding_names() {
+        let (n1, v1, n2, v2) = ("go", "1.21.13", "go-1", "21.13");
+        let config = parse(&pinned_yaml(&[(n1, v1), (n2, v2)]));
+
+        assert_eq!(
+            validate_config(&config).unwrap_err(),
+            ValidationError::PinnedBindingNameCollision(collision(
+                n1,
+                v1,
+                n2,
+                v2,
+                "pinnedPkgs-go-1-21-13"
+            ))
+        );
     }
 
     #[test]
