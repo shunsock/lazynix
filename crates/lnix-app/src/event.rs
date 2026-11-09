@@ -22,10 +22,6 @@ pub enum UseCaseEvent {
         name: PackageName,
         version: PackageVersion,
     },
-    PinnedVersionSeparatorConflict {
-        name: PackageName,
-        version: PackageVersion,
-    },
     GeneratingFlake,
     FlakeGenerated,
     UpdatingLock,

@@ -70,16 +70,16 @@ fn resolve_pinned_packages(
     deps: &Deps,
     config: &mut DevShellDefinition,
 ) -> Result<(), ApplicationError> {
-    let mut cached = deps.flake_reader.read_pinned_inputs()?;
-    for entry in &mut config.dev_shell.package.pinned {
-        if entry.version.as_str().contains('-') {
-            deps.reporter
-                .report(&UseCaseEvent::PinnedVersionSeparatorConflict {
-                    name: entry.name.clone(),
-                    version: entry.version.clone(),
-                });
-        }
-        let key = (entry.name.clone(), entry.version.clone());
+    let pinned_keys: Vec<_> = config
+        .dev_shell
+        .package
+        .pinned
+        .iter()
+        .map(|entry| (entry.name.clone(), entry.version.clone()))
+        .collect();
+    let mut cached = deps.flake_reader.read_pinned_inputs(&pinned_keys)?;
+    let entries = config.dev_shell.package.pinned.iter_mut();
+    for (entry, key) in entries.zip(pinned_keys) {
         if let Some(resolution) = cached.remove(&key) {
             entry.resolved_commit = Some(resolution.commit.to_string());
             entry.resolved_attr = Some(resolution.attr);
@@ -156,10 +156,13 @@ mod tests {
     }
 
     #[test]
-    fn cache_hit_skips_resolver() {
-        let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13")])).with_flake_reader(
+    fn hyphen_in_version_cache_hit_skips_resolver() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.0.0-rc1")])).with_flake_reader(
             MockFlakeReader::new(resolutions_from(&[(
-                "go", "1.21.13", CACHED_SHA, "go_1_21",
+                "go",
+                "1.0.0-rc1",
+                CACHED_SHA,
+                "go_1_21",
             )])),
         );
         let mut config = m.repo.read_config().unwrap();
@@ -167,6 +170,7 @@ mod tests {
         resolve_pinned_packages(&m.deps(), &mut config).unwrap();
 
         assert!(m.resolver.resolve_calls().is_empty());
+        assert!(m.reporter.events().is_empty());
         let pinned = &config.dev_shell.package.pinned[0];
         assert_eq!(pinned.resolved_commit.as_deref(), Some(CACHED_SHA));
         assert_eq!(pinned.resolved_attr.as_deref(), Some("go_1_21"));
@@ -233,24 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn hyphen_in_version_cache_miss_is_ok() {
-        let m = Mocks::with_config(config_with_pinned(&[("go", "1.0.0-rc1")]))
-            .with_flake_reader(MockFlakeReader::empty());
-        let mut config = m.repo.read_config().unwrap();
-
-        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
-
-        assert_eq!(m.resolver.resolve_calls(), vec!["go".to_string()]);
-        assert!(m.reporter.events().iter().any(|e| matches!(
-            e,
-            UseCaseEvent::PinnedVersionSeparatorConflict { version, .. }
-                if version.as_str() == "1.0.0-rc1"
-        )));
-        let pinned = &config.dev_shell.package.pinned[0];
-        assert_eq!(pinned.resolved_commit.as_deref(), Some(RESOLVED_SHA));
-    }
-
-    #[test]
     fn partial_cache_only_resolves_missing() {
         let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13"), ("rust", "1.70.0")]))
             .with_flake_reader(MockFlakeReader::new(resolutions_from(&[(
@@ -270,5 +256,19 @@ mod tests {
         let rust = &config.dev_shell.package.pinned[1];
         assert_eq!(rust.resolved_commit.as_deref(), Some(RESOLVED_SHA));
         assert_eq!(rust.resolved_attr.as_deref(), Some("go_1_21"));
+    }
+
+    #[test]
+    fn passes_pinned_keys_matching_config_to_the_flake_reader() {
+        let m = Mocks::with_config(config_with_pinned(&[("go", "1.21.13"), ("rust", "1.70.0")]));
+        let mut config = m.repo.read_config().unwrap();
+
+        resolve_pinned_packages(&m.deps(), &mut config).unwrap();
+
+        let expected = vec![
+            ("go".parse().unwrap(), "1.21.13".parse().unwrap()),
+            ("rust".parse().unwrap(), "1.70.0".parse().unwrap()),
+        ];
+        assert_eq!(m.flake_reader.pinned_keys_calls(), vec![expected]);
     }
 }

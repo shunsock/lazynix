@@ -12,10 +12,14 @@ use std::{collections::HashMap, fs};
 use lnix_domain::interface::persistence::{FlakeReader, PinnedResolution, PinnedResolutions};
 use lnix_domain::service::flake::pinned::{
     PINNED_BINDING_PREFIX, PINNED_INPUT_PREFIX, PINNED_INPUT_URL_SUFFIX, PINNED_URL_COMMIT_PREFIX,
+    binding_name, input_name,
 };
 use lnix_domain::{CommitSha, FlakeError, PackageName, PackageVersion};
 
 use crate::paths::WorkspacePaths;
+
+/// A `(name, version)` request for a pinned package.
+type PinnedKey = (PackageName, PackageVersion);
 
 /// Recovers pinned resolutions from the `flake.nix` at
 /// [`WorkspacePaths::flake_file`].
@@ -30,127 +34,119 @@ impl FsFlakeReader {
 }
 
 impl FlakeReader for FsFlakeReader {
-    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError> {
+    fn read_pinned_inputs(
+        &self,
+        pinned_keys: &[PinnedKey],
+    ) -> Result<PinnedResolutions, FlakeError> {
         let Ok(contents) = fs::read_to_string(self.paths.flake_file()) else {
             return Ok(HashMap::new());
         };
-        Ok(parse_pinned_inputs(&contents))
+        Ok(parse_pinned_inputs(&contents, pinned_keys))
     }
 }
 
-fn parse_pinned_inputs(contents: &str) -> PinnedResolutions {
-    let mut commits = collect_commits(contents);
-    let mut resolutions = HashMap::new();
-    for line in contents.lines() {
-        let Some((key, attr)) = parse_attr_line(line, &commits) else {
-            continue;
-        };
-        let commit = commits
-            .remove(&key)
-            .expect("commit present by construction");
-        resolutions.insert(key, PinnedResolution { commit, attr });
-    }
-    resolutions
-}
+/// Re-encodes each `pinned_keys` entry with the writer's naming scheme
+/// and looks for the matching lines, rather than decoding the flake's
+/// own names.
+///
+/// Walks `contents` once, matching each line against a reverse lookup
+/// built from `pinned_keys` (encoded name -> key) instead of scanning
+/// the file once per key; a cheap prefix check skips every line that
+/// is not part of the pinned section before the per-line candidate
+/// match runs. Precondition: `pinned_keys` passed `validate_config`,
+/// so no two keys share an encoded input or binding name.
+fn parse_pinned_inputs(contents: &str, pinned_keys: &[PinnedKey]) -> PinnedResolutions {
+    let by_input = encode_lookup(pinned_keys, input_name);
+    let by_binding = encode_lookup(pinned_keys, binding_name);
 
-fn collect_commits(contents: &str) -> HashMap<(PackageName, PackageVersion), CommitSha> {
-    let mut commits = HashMap::new();
+    let mut commits: HashMap<PinnedKey, CommitSha> = HashMap::new();
+    let mut attrs: HashMap<PinnedKey, String> = HashMap::new();
     for line in contents.lines() {
-        if let Some((key, commit)) = parse_url_line(line) {
-            commits.insert(key, commit);
+        let trimmed = line.trim();
+        if trimmed.starts_with(PINNED_INPUT_PREFIX)
+            && let Some((key, commit)) = longest_prefix_match(trimmed, &by_input, parse_commit)
+        {
+            commits.entry(key.clone()).or_insert(commit);
+        } else if trimmed.starts_with(PINNED_BINDING_PREFIX)
+            && let Some((key, attr)) = longest_prefix_match(trimmed, &by_binding, parse_attr)
+        {
+            attrs.entry(key.clone()).or_insert(attr);
         }
     }
-    commits
+
+    pinned_keys
+        .iter()
+        .filter_map(|key| {
+            let commit = commits.get(key)?.clone();
+            let attr = attrs.get(key)?.clone();
+            Some((key.clone(), PinnedResolution { commit, attr }))
+        })
+        .collect()
 }
 
-/// Parses a pinned-input `.url = "..."` line into its `(name, version)`
-/// key and commit.
+/// Builds a reverse lookup from each key's encoded name (as produced
+/// by `encode`) back to the key itself.
+fn encode_lookup(
+    pinned_keys: &[PinnedKey],
+    encode: impl Fn(&PackageName, &PackageVersion) -> String,
+) -> HashMap<String, PinnedKey> {
+    pinned_keys
+        .iter()
+        .map(|(name, version)| (encode(name, version), (name.clone(), version.clone())))
+        .collect()
+}
+
+/// Finds the candidate in `candidates` whose encoded name is the
+/// longest prefix of `line` for which `parse_rest` can parse the
+/// remainder.
+///
+/// Longest-prefix (rather than first-match) matters because one
+/// entry's encoded name can be a literal prefix of another's: a
+/// `PackageName` may contain a dot, so e.g. `pinnedPkgs-a-b` is a
+/// prefix of `pinnedPkgs-a-b.rest-0`. Picking the longest match
+/// attributes each line to the entry that actually encodes it.
+fn longest_prefix_match<'a, R>(
+    line: &str,
+    candidates: &'a HashMap<String, PinnedKey>,
+    parse_rest: impl Fn(&str) -> Option<R>,
+) -> Option<(&'a PinnedKey, R)> {
+    candidates
+        .iter()
+        .filter_map(|(encoded, key)| {
+            let rest = line.strip_prefix(encoded.as_str())?;
+            let parsed = parse_rest(rest)?;
+            Some((encoded.len(), key, parsed))
+        })
+        .max_by_key(|(len, _, _)| *len)
+        .map(|(_, key, parsed)| (key, parsed))
+}
+
+/// Parses the commit out of the `.url = "github:NixOS/nixpkgs/<commit>"`
+/// remainder after an `<input>` match.
 ///
 /// A commit that fails to parse as a [`CommitSha`] (e.g. nix-versions'
 /// 7-digit short SHA, left over from before full-SHA expansion was
 /// required) is dropped rather than cached, so the caller re-resolves
 /// it from scratch instead of pinning an input to an ambiguous rev.
-fn parse_url_line(line: &str) -> Option<((PackageName, PackageVersion), CommitSha)> {
-    let after_input_prefix = line.trim_start().strip_prefix(PINNED_INPUT_PREFIX)?;
-    let (name_and_version, after_dot_url) =
-        after_input_prefix.split_once(PINNED_INPUT_URL_SUFFIX)?;
-    let (name_str, dashed_version) = split_name_and_version(name_and_version)?;
-    let quoted_value = extract_quoted_url(after_dot_url)?;
-    let commit = quoted_value.strip_prefix(PINNED_URL_COMMIT_PREFIX)?;
-    let commit = commit.parse::<CommitSha>().ok()?;
-    let key = build_key(name_str, dashed_version)?;
-    Some((key, commit))
-}
-
-fn extract_quoted_url(after_dot_url: &str) -> Option<&str> {
-    let after_equals = after_dot_url.trim_start();
-    let quoted_value = after_equals.strip_prefix('"')?;
+fn parse_commit(rest: &str) -> Option<CommitSha> {
+    let after_suffix = rest.strip_prefix(PINNED_INPUT_URL_SUFFIX)?.trim_start();
+    let quoted_value = after_suffix.strip_prefix('"')?;
     let (url, _) = quoted_value.split_once('"')?;
-    Some(url)
+    let commit = url.strip_prefix(PINNED_URL_COMMIT_PREFIX)?;
+    commit.parse::<CommitSha>().ok()
 }
 
-fn parse_attr_line(
-    line: &str,
-    commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
-) -> Option<((PackageName, PackageVersion), String)> {
-    let trimmed = line.trim();
-    let rest = trimmed.strip_prefix(PINNED_BINDING_PREFIX)?;
-    let (name_and_version, attr_tail) = rest.split_once('.')?;
-    let key = match_known_key(name_and_version, commits)?;
-    let attr: String = attr_tail
+// NOTE: validate_config rejects collisions; the reader assumes
+// NOTE: uniqueness and keeps the first matching line per key.
+/// Parses the attribute out of the `.<attr>` remainder after a
+/// `<binding>` match.
+fn parse_attr(rest: &str) -> Option<String> {
+    let after_dot = rest.strip_prefix('.')?;
+    let attr: String = after_dot
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .collect();
-    if attr.is_empty() {
-        return None;
-    }
-    Some((key, attr))
-}
-
-/// Finds the `(name, version)` key whose binding-name encoding matches
-/// `name_and_version`.
-///
-/// `HashMap::keys()` order varies by process (it is seeded per run), so
-/// scanning it directly would make the attribution of a binding-name
-/// collision non-deterministic. We sort the keys first so that a
-/// collision is always resolved to the same, lexicographically first
-/// key.
-///
-/// WHITELIST: a collision can only occur when two configured
-/// `(name, version)` pairs encode to the same binding name (e.g. `go` +
-/// `1.21.13` and `go-1` + `21.13` both encode to `go-1-21-13`). Config
-/// validation rejects pinned entries that would collide, so production
-/// `flake.nix` files never reach this branch; the deterministic
-/// tie-break only matters for malformed input.
-fn match_known_key(
-    name_and_version: &str,
-    commits: &HashMap<(PackageName, PackageVersion), CommitSha>,
-) -> Option<(PackageName, PackageVersion)> {
-    let mut sorted_keys: Vec<&(PackageName, PackageVersion)> = commits.keys().collect();
-    sorted_keys.sort_by_key(|(name, version)| (name.as_str(), version.as_str()));
-    for (name, version) in sorted_keys {
-        let expected = format!("{}-{}", name.as_str(), version.as_str().replace('.', "-"));
-        if expected == name_and_version {
-            return Some((name.clone(), version.clone()));
-        }
-    }
-    None
-}
-
-/// Splits `name-and-dashed-version` at the `--` separator emitted by
-/// the writer. Callers rely on `PackageName` rejecting names that
-/// themselves contain `--` so this split is unambiguous.
-fn split_name_and_version(name_and_version: &str) -> Option<(&str, &str)> {
-    name_and_version.split_once("--")
-}
-
-fn build_key(name_str: &str, dashed_version: &str) -> Option<(PackageName, PackageVersion)> {
-    let name = name_str.parse::<PackageName>().ok()?;
-    let version = dashed_version
-        .replace('-', ".")
-        .parse::<PackageVersion>()
-        .ok()?;
-    Some((name, version))
+    (!attr.is_empty()).then_some(attr)
 }
 
 #[cfg(test)]
@@ -171,6 +167,10 @@ mod tests {
         (name.parse().unwrap(), version.parse().unwrap())
     }
 
+    fn known(pairs: &[(&str, &str)]) -> Vec<(PackageName, PackageVersion)> {
+        pairs.iter().map(|(n, v)| key(n, v)).collect()
+    }
+
     fn resolution(commit: &str, attr: &str) -> PinnedResolution {
         PinnedResolution {
             commit: commit.parse().unwrap(),
@@ -184,6 +184,7 @@ mod tests {
     const SHA_GO_TASK: &str = "3d464701abf1dac19bf39d6ff8c07c8c37e81e0e";
     const SHA_RUST: &str = "abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
     const SHA_URL: &str = "deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
+    const SHA_DOTNET: &str = "cafefeedabf1dac19bf39d6ff8c07c8c37e81e0e";
 
     // NOTE: the reader matches lines by prefix, so fixtures need
     // only the matched lines, not a structurally valid flake.nix.
@@ -204,12 +205,71 @@ pinnedPkgs-go-1-21-13.go_1_21
 pinnedPkgs-rust-1-70-0.rustc
 "#;
 
+    const HYPHENATED_VERSION_FLAKE: &str = r#"
+nixpkgs--dotnet-sdk_11--11-0-100-preview-7-26381-103.url = "github:NixOS/nixpkgs/cafefeedabf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-dotnet-sdk_11-11-0-100-preview-7-26381-103.dotnet-sdk_11
+"#;
+
+    const BROKEN_AND_GO_FLAKE: &str = r#"
+nixpkgs--broken--0-0-0.url = "invalid";
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-broken-0-0-0.some_attr
+pinnedPkgs-go-1-21-13.go_1_21
+"#;
+
+    const NO_PINNED_SECTION_FLAKE: &str = r#"
+nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
+flake-utils.url = "github:numtide/flake-utils";
+"#;
+
+    const URL_ONLY_FLAKE: &str = r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+"#;
+
+    const ATTR_ONLY_FLAKE: &str = r#"
+pinnedPkgs-go-1-21-13.go_1_21
+"#;
+
+    const URL_HELPER_FLAKE: &str = r#"
+nixpkgs--urlHelper--1-0-0.url = "github:NixOS/nixpkgs/deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-urlHelper-1-0-0.urlHelper
+"#;
+
+    const SHORT_REV_FLAKE: &str = r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
+pinnedPkgs-go-1-21-13.go_1_21
+"#;
+
+    const TRAILING_SEMICOLON_FLAKE: &str = r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-1-21-13.go_1_21;
+"#;
+
+    // NOTE: "a-b.rest" makes `pinnedPkgs-a-b` a literal prefix of
+    // NOTE: `pinnedPkgs-a-b.rest-0`; the colliding line comes first.
+    const PREFIX_COLLIDING_BINDING_FLAKE: &str = r#"
+nixpkgs--a--b.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+nixpkgs--a-b.rest--0.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-a-b.rest-0.second
+pinnedPkgs-a-b.first
+"#;
+
+    const DUPLICATE_GO_LINES_FLAKE: &str = r#"
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
+nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
+pinnedPkgs-go-1-21-13.go_1_21
+pinnedPkgs-go-1-21-13.go_1_21_second
+"#;
+
     #[test]
     fn reads_single_pinned_entry() {
         let dir = TempDir::new().unwrap();
         write_flake(&dir, SINGLE_GO_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -221,7 +281,9 @@ pinnedPkgs-rust-1-70-0.rustc
         let dir = TempDir::new().unwrap();
         write_flake(&dir, HYPHENATED_ATTR_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go-task", "3.48.0")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go-task", "3.48.0"), resolution(SHA_GO_TASK, "go-task"));
@@ -229,19 +291,31 @@ pinnedPkgs-rust-1-70-0.rustc
     }
 
     #[test]
+    fn round_trips_a_hyphenated_version_via_known_keys() {
+        let dir = TempDir::new().unwrap();
+        write_flake(&dir, HYPHENATED_VERSION_FLAKE);
+        let pinned = [("dotnet-sdk_11", "11.0.100-preview.7.26381.103")];
+
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&pinned))
+            .unwrap();
+
+        let mut expected = HashMap::new();
+        expected.insert(
+            key("dotnet-sdk_11", "11.0.100-preview.7.26381.103"),
+            resolution(SHA_DOTNET, "dotnet-sdk_11"),
+        );
+        assert_eq!(inputs, expected);
+    }
+
+    #[test]
     fn skips_malformed_url_and_keeps_valid_entry() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--broken--0-0-0.url = "invalid";
-nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-pinnedPkgs-broken-0-0-0.some_attr
-pinnedPkgs-go-1-21-13.go_1_21
-"#,
-        );
+        write_flake(&dir, BROKEN_AND_GO_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("broken", "0.0.0"), ("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -251,16 +325,11 @@ pinnedPkgs-go-1-21-13.go_1_21
     #[test]
     fn returns_empty_map_for_flake_without_pinned_section() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
-flake-utils.url = "github:numtide/flake-utils";
-"#,
-        );
+        write_flake(&dir, NO_PINNED_SECTION_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -268,14 +337,11 @@ flake-utils.url = "github:numtide/flake-utils";
     #[test]
     fn drops_entry_when_only_url_line_present() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-"#,
-        );
+        write_flake(&dir, URL_ONLY_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -283,14 +349,11 @@ nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8
     #[test]
     fn drops_entry_when_only_attr_line_present() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-pinnedPkgs-go-1-21-13.go_1_21
-"#,
-        );
+        write_flake(&dir, ATTR_ONLY_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -299,7 +362,9 @@ pinnedPkgs-go-1-21-13.go_1_21
     fn returns_empty_map_when_flake_missing() {
         let dir = TempDir::new().unwrap();
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
@@ -309,9 +374,26 @@ pinnedPkgs-go-1-21-13.go_1_21
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("flake.nix")).unwrap();
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
+    }
+
+    #[test]
+    fn resolves_each_entry_when_one_binding_name_is_a_prefix_of_another() {
+        let dir = TempDir::new().unwrap();
+        write_flake(&dir, PREFIX_COLLIDING_BINDING_FLAKE);
+
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("a", "b"), ("a-b.rest", "0")]))
+            .unwrap();
+
+        let mut expected = HashMap::new();
+        expected.insert(key("a", "b"), resolution(SHA_GO, "first"));
+        expected.insert(key("a-b.rest", "0"), resolution(SHA_RUST, "second"));
+        assert_eq!(inputs, expected);
     }
 
     #[test]
@@ -319,7 +401,9 @@ pinnedPkgs-go-1-21-13.go_1_21
         let dir = TempDir::new().unwrap();
         write_flake(&dir, TWO_PINNED_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13"), ("rust", "1.70.0")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -330,15 +414,11 @@ pinnedPkgs-go-1-21-13.go_1_21
     #[test]
     fn does_not_confuse_name_containing_dot_url_prefix() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--urlHelper--1-0-0.url = "github:NixOS/nixpkgs/deadbee1abf1dac19bf39d6ff8c07c8c37e81e0e";
-pinnedPkgs-urlHelper-1-0-0.urlHelper
-"#,
-        );
+        write_flake(&dir, URL_HELPER_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("urlHelper", "1.0.0")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("urlHelper", "1.0.0"), resolution(SHA_URL, "urlHelper"));
@@ -348,32 +428,23 @@ pinnedPkgs-urlHelper-1-0-0.urlHelper
     #[test]
     fn drops_entry_whose_url_line_has_a_short_rev() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed6275";
-pinnedPkgs-go-1-21-13.go_1_21
-"#,
-        );
+        write_flake(&dir, SHORT_REV_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         assert!(inputs.is_empty());
     }
 
     #[test]
-    fn attributes_colliding_binding_name_to_the_lexicographically_first_key() {
+    fn attr_trailing_semicolon_is_stripped() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-nixpkgs--go-1--21-13.url = "github:NixOS/nixpkgs/abcd1231abf1dac19bf39d6ff8c07c8c37e81e0e";
-pinnedPkgs-go-1-21-13.go_1_21
-"#,
-        );
+        write_flake(&dir, TRAILING_SEMICOLON_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));
@@ -381,17 +452,13 @@ pinnedPkgs-go-1-21-13.go_1_21
     }
 
     #[test]
-    fn attr_trailing_semicolon_is_stripped() {
+    fn duplicate_lines_for_the_same_key_keep_the_first() {
         let dir = TempDir::new().unwrap();
-        write_flake(
-            &dir,
-            r#"
-nixpkgs--go--1-21-13.url = "github:NixOS/nixpkgs/5ed62751abf1dac19bf39d6ff8c07c8c37e81e0e";
-pinnedPkgs-go-1-21-13.go_1_21;
-"#,
-        );
+        write_flake(&dir, DUPLICATE_GO_LINES_FLAKE);
 
-        let inputs = reader_for(&dir).read_pinned_inputs().unwrap();
+        let inputs = reader_for(&dir)
+            .read_pinned_inputs(&known(&[("go", "1.21.13")]))
+            .unwrap();
 
         let mut expected = HashMap::new();
         expected.insert(key("go", "1.21.13"), resolution(SHA_GO, "go_1_21"));

@@ -34,9 +34,6 @@ impl ReporterPort for TerminalPresenter {
 fn render_warning(event: &UseCaseEvent) -> Option<String> {
     match event {
         UseCaseEvent::ConfigDiagnostic(message) => Some(message.clone()),
-        UseCaseEvent::PinnedVersionSeparatorConflict { name, version } => Some(format!(
-            "Version '{version}' for '{name}' contains '-' which conflicts with the pinned-input separator; skipping flake.nix cache and re-resolving via nix-versions each run."
-        )),
         _ => None,
     }
 }
@@ -45,9 +42,8 @@ fn render_event(event: &UseCaseEvent) -> Vec<String> {
     match event {
         UseCaseEvent::ReadingConfig => vec!["Reading configuration...".to_string()],
         UseCaseEvent::ValidatingConfig => vec!["Validating configuration...".to_string()],
-        // SEE: 下 2 arm は render_warning が拾うため、ここは exhaustive 用
+        // SEE: 下 arm は render_warning が拾うため、ここは exhaustive 用
         UseCaseEvent::ConfigDiagnostic(_) => Vec::new(),
-        UseCaseEvent::PinnedVersionSeparatorConflict { .. } => Vec::new(),
         UseCaseEvent::ResolvingPinned { name, version } => {
             vec![format!("Resolving version for {name} @ {version}...")]
         }
@@ -142,20 +138,6 @@ mod tests {
             render_warning(&UseCaseEvent::ConfigDiagnostic("boom".to_string())),
             Some("boom".to_string())
         );
-    }
-
-    #[test]
-    fn renders_pinned_version_separator_conflict_as_warning() {
-        let event = UseCaseEvent::PinnedVersionSeparatorConflict {
-            name: "go".parse().unwrap(),
-            version: "1.0.0-rc1".parse().unwrap(),
-        };
-
-        let warning = render_warning(&event).expect("separator conflict warns on stderr");
-
-        assert!(warning.contains("'1.0.0-rc1' for 'go'"));
-        assert!(warning.contains("pinned-input separator"));
-        assert_eq!(render_event(&event), Vec::<String>::new());
     }
 
     #[test]

@@ -50,7 +50,7 @@ mod tests {
 
         let config = deps.repo.read_config().unwrap();
         let write_result = deps.flake_writer.write_flake("{}");
-        let pinned = deps.flake_reader.read_pinned_inputs().unwrap();
+        let pinned = deps.flake_reader.read_pinned_inputs(&[]).unwrap();
         let env_exists = deps.env.exists(".env");
         let exit_code = deps.nix.develop_command(&["true".to_string()]).unwrap();
         let outcome = deps

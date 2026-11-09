@@ -250,12 +250,19 @@ impl StubResolver {
 pub(crate) struct MockFlakeReader {
     inputs: PinnedResolutions,
     read_calls: RefCell<u32>,
+    pinned_keys_calls: RefCell<Vec<Vec<(PackageName, PackageVersion)>>>,
     should_fail: bool,
 }
 
 impl FlakeReader for MockFlakeReader {
-    fn read_pinned_inputs(&self) -> Result<PinnedResolutions, FlakeError> {
+    fn read_pinned_inputs(
+        &self,
+        pinned_keys: &[(PackageName, PackageVersion)],
+    ) -> Result<PinnedResolutions, FlakeError> {
         *self.read_calls.borrow_mut() += 1;
+        self.pinned_keys_calls
+            .borrow_mut()
+            .push(pinned_keys.to_vec());
         if self.should_fail {
             return Err(FlakeError::Read(std::io::Error::other(
                 "mock flake reader failure",
@@ -279,6 +286,12 @@ impl MockFlakeReader {
 
     pub(crate) fn read_calls(&self) -> u32 {
         *self.read_calls.borrow()
+    }
+
+    /// Records the `pinned_keys` slice supplied on each
+    /// `read_pinned_inputs` call, in call order.
+    pub(crate) fn pinned_keys_calls(&self) -> Vec<Vec<(PackageName, PackageVersion)>> {
+        self.pinned_keys_calls.borrow().clone()
     }
 }
 
@@ -408,15 +421,15 @@ mod tests {
         );
         let reader = MockFlakeReader::new(inputs.clone());
 
-        assert_eq!(reader.read_pinned_inputs().unwrap(), inputs);
+        assert_eq!(reader.read_pinned_inputs(&[]).unwrap(), inputs);
     }
 
     #[test]
     fn mock_flake_reader_records_read_calls() {
         let reader = MockFlakeReader::empty();
 
-        let _ = reader.read_pinned_inputs();
-        let _ = reader.read_pinned_inputs();
+        let _ = reader.read_pinned_inputs(&[]);
+        let _ = reader.read_pinned_inputs(&[]);
 
         assert_eq!(reader.read_calls(), 2);
     }
@@ -427,6 +440,6 @@ mod tests {
             "devShell:\n  package:\n    stable:\n      - name: bash\n",
         ));
 
-        assert!(m.flake_reader.read_pinned_inputs().unwrap().is_empty());
+        assert!(m.flake_reader.read_pinned_inputs(&[]).unwrap().is_empty());
     }
 }
