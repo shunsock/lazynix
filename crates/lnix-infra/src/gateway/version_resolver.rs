@@ -7,12 +7,24 @@ use serde::Deserialize;
 use lnix_domain::interface::gateway::{ResolvedVersion, VersionResolver};
 use lnix_domain::{NixError, PackageName, PackageVersion};
 
+use super::devbox;
 use crate::process::run_capture;
 
 /// One entry of nix-versions' `--json` output.
 #[derive(Debug, Deserialize)]
 struct NixVersionEntry {
     installable: String,
+}
+
+/// nix-versions' raw split of `nixpkgs/<commit>#<attr>`.
+///
+/// NOTE: distinct from [`ResolvedVersion`] because `commit` here may
+/// still be nix-versions' 7-digit short SHA; only after
+/// [`devbox::expand_to_full_sha`] does it become the full 40-digit
+/// SHA that a pinned-input `rev` requires.
+struct ParsedInstallable {
+    commit: String,
+    attr: String,
 }
 
 /// Resolves versions by running `nix run github:vic/nix-versions`.
@@ -25,7 +37,7 @@ fn nix_versions() -> Command {
 }
 
 /// Splits `nixpkgs/<commit>#<attr>` into its parts.
-fn parse_installable(spec: &str, installable: &str) -> Result<ResolvedVersion, NixError> {
+fn parse_installable(spec: &str, installable: &str) -> Result<ParsedInstallable, NixError> {
     let rest = installable
         .strip_prefix("nixpkgs/")
         .ok_or_else(|| NixError::VersionResolution {
@@ -44,7 +56,7 @@ fn parse_installable(spec: &str, installable: &str) -> Result<ResolvedVersion, N
                 installable
             ),
         })?;
-    Ok(ResolvedVersion {
+    Ok(ParsedInstallable {
         commit: commit.to_string(),
         attr: attr.to_string(),
     })
@@ -81,7 +93,12 @@ impl VersionResolver for NixVersionsResolver {
                 message: format!("no version found. Use 'lnix search {}' first", name),
             })?;
 
-        parse_installable(&spec, &entry.installable)
+        let parsed = parse_installable(&spec, &entry.installable)?;
+        let commit = devbox::expand_to_full_sha(&spec, name, version, &parsed.commit)?;
+        Ok(ResolvedVersion {
+            commit,
+            attr: parsed.attr,
+        })
     }
 
     fn search(
@@ -120,29 +137,23 @@ mod tests {
 
     #[test]
     fn parses_valid_installable() {
-        // Arrange / Act
         let resolved = parse_installable("go@1.21.13", "nixpkgs/5ed6275#go_1_21").unwrap();
 
-        // Assert
         assert_eq!(resolved.commit, "5ed6275");
         assert_eq!(resolved.attr, "go_1_21");
     }
 
     #[test]
     fn rejects_installable_without_nixpkgs_prefix() {
-        // Arrange / Act
         let result = parse_installable("go@1.21.13", "invalid/5ed6275#go_1_21");
 
-        // Assert
         assert!(matches!(result, Err(NixError::VersionResolution { .. })));
     }
 
     #[test]
     fn rejects_installable_without_attr_separator() {
-        // Arrange / Act
         let result = parse_installable("go@1.21.13", "nixpkgs/5ed6275");
 
-        // Assert
         assert!(matches!(result, Err(NixError::VersionResolution { .. })));
     }
 }

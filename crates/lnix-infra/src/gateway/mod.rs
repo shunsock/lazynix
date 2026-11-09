@@ -1,5 +1,6 @@
 //! Subprocess adapters for the domain's gateway ports.
 
+mod devbox;
 mod nix_evaluator;
 mod nix_runner;
 mod version_resolver;
