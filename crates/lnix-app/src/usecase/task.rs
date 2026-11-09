@@ -58,7 +58,7 @@ mod tests {
         assert_eq!(code, 0);
         assert_eq!(
             m.nix.run_task_commands().unwrap(),
-            vec!["echo hi world".to_string()]
+            vec!["echo hi 'world'".to_string()]
         );
         assert!(m.reporter.events().iter().any(|e| matches!(
             e,
