@@ -10,6 +10,15 @@
 /// cannot escape into command injection this way. The command template
 /// itself is trusted, author-written shell and is left untouched.
 ///
+/// An empty-string argument is quoted into `''` and keeps its own
+/// positional slot (`$#` grows by one for it); the previous, unquoted
+/// join instead let it vanish from the expanded command line.
+///
+/// CONSTRAINT: templates must not wrap `{{.CLI_ARGS}}` in their own
+/// quotes.
+/// REASON: each argument is already quoted, so an extra pair turns
+/// `echo "{{.CLI_ARGS}}"`'s `a b` output into `'a b'`.
+///
 /// # Arguments
 ///
 /// * `command_list` - List of command strings that may contain `{{.CLI_ARGS}}` placeholder
@@ -80,11 +89,19 @@ mod tests {
     }
 
     #[test]
-    fn test_quote_posix_escapes_embedded_single_quote() {
+    fn test_interpolate_quotes_empty_string_argument() {
+        let commands = vec!["echo {{.CLI_ARGS}}".to_string()];
+        let args = vec!["".to_string()];
+        let result = interpolate_command(&commands, &args);
+        assert_eq!(result, vec!["echo ''"]);
+    }
+
+    #[test]
+    fn test_interpolate_escapes_embedded_single_quote() {
         let commands = vec!["echo {{.CLI_ARGS}}".to_string()];
         let args = vec!["it's".to_string()];
         let result = interpolate_command(&commands, &args);
-        assert_eq!(result, vec!["echo 'it'\\''s'".to_string()]);
+        assert_eq!(result, vec!["echo 'it'\\''s'"]);
     }
 
     #[test]
@@ -142,10 +159,7 @@ mod tests {
             "`whoami`".to_string(),
         ];
         let result = interpolate_command(&commands, &args);
-        assert_eq!(
-            result,
-            vec!["echo '; rm -rf /' '$(whoami)' '`whoami`'".to_string()]
-        );
+        assert_eq!(result, vec!["echo '; rm -rf /' '$(whoami)' '`whoami`'"]);
     }
 
     /// Medium test: spawns the real `sh` process so the interpolated
@@ -154,7 +168,7 @@ mod tests {
     /// re-interpret the metacharacters, which is the exact failure mode
     /// of the original vulnerability.
     #[test]
-    fn test_interpolated_command_reaches_sh_as_literal_argv_not_reinterpreted() {
+    fn test_interpolate_reaches_sh_as_literal_argv_not_reinterpreted() {
         let commands = vec!["printf '%s\\n' {{.CLI_ARGS}}".to_string()];
         let args = vec!["; echo pwned".to_string(), "$(echo x)".to_string()];
         let command = interpolate_command(&commands, &args).remove(0);
@@ -168,7 +182,5 @@ mod tests {
         // NOTE: a bare "pwned"/"x" line means the shell re-ran args.
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert_eq!(stdout, "; echo pwned\n$(echo x)\n");
-        assert!(!stdout.lines().any(|line| line == "pwned"));
-        assert!(!stdout.lines().any(|line| line == "x"));
     }
 }
