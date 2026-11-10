@@ -12,7 +12,7 @@
       # CONSTRAINT: Cargo.toml の workspace version と一致させなくてはならない。
       # REASON: 乖離すると Nix メタデータと lnix --version の出力が食い違うため。
       pname = "lnix";
-      version = "0.4.0";
+      version = "0.5.0";
 
       # Release target systems for cross-compilation
       releaseSystems = {
