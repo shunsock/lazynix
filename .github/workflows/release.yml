@@ -115,7 +115,7 @@ jobs:
 
   build-aarch64-darwin:
     needs: prepare-release
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     permissions:
       contents: read
